@@ -4,23 +4,160 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Gubernator</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
+  <link rel="stylesheet" href="/static/style.css"/>
 </head>
-<body style="background:#0d1117;color:#e6edf3;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-  <div style="text-align:center">
-    <div style="font-size:48px;margin-bottom:16px">⚙️</div>
-    <h1 style="font-size:24px;margin-bottom:8px">Gubernator</h1>
-    <p style="color:#8b949e">App shell — coming next</p>
-    <button onclick="logout()" style="margin-top:24px;padding:8px 20px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#e6edf3;cursor:pointer;font-size:13px;">
-      Sign out
-    </button>
+<body>
+  <div class="app" id="app">
+    <div class="app-columns">
+
+      <!-- Claude Chat -->
+      <div class="col" id="col-chat">
+        <div class="col-header">
+          <span class="col-icon">🤖</span>
+          <span class="col-title">Claude</span>
+          <span class="status-dot" id="status-chat"></span>
+          <span class="status-label" id="status-label-chat">Connecting…</span>
+          <div class="header-stats" id="claude-stats">
+            <span class="stat-badge"        id="stat-tokens" title="Session tokens">—</span>
+            <span class="stat-badge accent" id="stat-ctx"    title="Context usage">—</span>
+            <span class="stat-badge green"  id="stat-cost"   title="Session cost">—</span>
+          </div>
+          <button class="cancel-tui-btn" id="claude-cancel-btn" onclick="cancelClaude()" style="display:none" title="Stop Claude">⛔ Cancel</button>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-area">
+          <textarea id="chat-input" placeholder="Ask Claude…" autocomplete="off" rows="1"></textarea>
+          <button id="chat-send" onclick="sendMessage()">Send</button>
+        </div>
+      </div>
+
+      <div class="v-divider" id="v-divider"></div>
+
+      <!-- Right panel -->
+      <div class="right-panel" id="right-panel">
+
+        <!-- TUI -->
+        <div class="col" id="col-tui">
+          <div class="col-header">
+            <span class="col-icon">🦞</span>
+            <span class="col-title">OpenClaw TUI</span>
+            <span class="status-dot" id="status-tui"></span>
+            <span class="status-label" id="status-label-tui">Connecting…</span>
+            <div class="header-stats" id="tui-stats">
+              <span class="stat-badge accent" id="stat-oc-ctx"   title="OpenClaw context">—</span>
+              <span class="stat-badge"        id="stat-oc-cache" title="Cache hit rate">—</span>
+            </div>
+            <button class="scroll-mode-btn" id="tui-scroll-btn" onclick="enterTuiScrollMode()" title="Scroll TUI history">↑ Scroll</button>
+            <button class="cancel-tui-btn"  id="tui-cancel-btn" onclick="cancelTuiPoll()" style="display:none" title="Cancel TUI poll">⛔ Cancel</button>
+          </div>
+          <div class="tui-input-hint" id="tui-input-hint" style="display:none">
+            <span>🔐 Agent needs input — type directly in the TUI, or use the secure field:</span>
+            <input id="tui-direct-input" class="tui-direct-field" type="password" placeholder="password / API key…" autocomplete="off"/>
+            <button class="tui-direct-send" onclick="sendDirectToTui()">↵</button>
+            <button class="tui-hint-close"  onclick="dismissTuiHint()">✕</button>
+          </div>
+          <div class="terminal-wrap" id="tui-terminal"></div>
+        </div>
+
+        <div class="h-divider" id="h-divider"></div>
+
+        <!-- Shell -->
+        <div class="col" id="col-shell">
+          <div class="col-header">
+            <span class="col-icon">💻</span>
+            <span class="col-title">VPS Shell</span>
+            <span class="status-dot" id="status-shell"></span>
+            <span class="status-label" id="status-label-shell">Connecting…</span>
+          </div>
+          <div class="terminal-wrap" id="shell-terminal"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+      <button class="bar-btn" onclick="openVaultModal()" title="Credential vault">🔑 Vault</button>
+      <button class="bar-btn" onclick="openVpsModal()"   title="VPS connection settings">🖥 VPS</button>
+      <span class="bar-spacer"></span>
+      <span class="bar-user" id="bar-user"></span>
+      <button class="bar-btn" onclick="doLogout()">Sign out</button>
+    </div>
   </div>
-  <script>
-    // Guard: redirect to login if not authenticated
-    fetch('/api/auth/me').then(r => { if (!r.ok) location.href = '/'; });
-    async function logout() {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      location.href = '/';
-    }
-  </script>
+
+  <!-- ── Vault modal ─────────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="vault-modal" style="display:none" onclick="closeModalOnBg(event,'vault-modal')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <span>🔑</span>
+        <span class="modal-title">Credential Vault</span>
+        <button class="modal-close" onclick="closeModal('vault-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <button class="modal-add-btn" onclick="showCredForm()">+ Add credential</button>
+        <div id="cred-form-wrap" style="display:none">
+          <div class="cred-form" id="cred-form">
+            <div><label>Name (no spaces, e.g. hostgator_cpanel)</label><input id="cf-name" placeholder="credential_name"/></div>
+            <div><label>Username (optional)</label><input id="cf-user" placeholder="username"/></div>
+            <div>
+              <label>Password / Secret</label>
+              <div class="pw-row">
+                <input id="cf-pass" type="password" placeholder="••••••••"/>
+                <button class="pw-toggle" onclick="togglePw('cf-pass',this)">👁</button>
+              </div>
+            </div>
+            <div><label>Notes (optional)</label><input id="cf-notes" placeholder="e.g. cPanel for example.com"/></div>
+            <label class="form-check"><input type="checkbox" id="cf-vps"/> Sync to VPS <span style="color:var(--dim);font-size:11px">(writes to /root/.openclaw/secrets/)</span></label>
+            <div class="cred-form-actions">
+              <button class="btn-secondary" onclick="hideCredForm()">Cancel</button>
+              <button class="btn-primary"   onclick="saveCredential()">Save</button>
+            </div>
+          </div>
+        </div>
+        <div id="cred-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── VPS modal ───────────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="vps-modal" style="display:none" onclick="closeModalOnBg(event,'vps-modal')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <span>🖥</span>
+        <span class="modal-title">VPS Connection</span>
+        <button class="modal-close" onclick="closeModal('vps-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="vps-setup-info">
+          These credentials connect Gubernator to your VPS via SSH.<br/>
+          <strong>The password is stored encrypted</strong> in the database — it never appears in logs or chat history.
+        </div>
+        <div class="cred-form">
+          <div><label>Host / IP</label><input id="vf-host" placeholder="144.91.74.171"/></div>
+          <div style="display:flex;gap:12px">
+            <div style="flex:1"><label>Port</label><input id="vf-port" placeholder="22" value="22"/></div>
+            <div style="flex:2"><label>Username</label><input id="vf-user" placeholder="root"/></div>
+          </div>
+          <div>
+            <label>Password</label>
+            <div class="pw-row">
+              <input id="vf-pass" type="password" placeholder="••••••••"/>
+              <button class="pw-toggle" onclick="togglePw('vf-pass',this)">👁</button>
+            </div>
+          </div>
+          <div><label>Label (optional)</label><input id="vf-label" placeholder="My VPS"/></div>
+          <div class="cred-form-actions">
+            <button class="btn-primary" onclick="saveVps()">Save &amp; Reconnect</button>
+          </div>
+        </div>
+        <div id="vps-list" style="margin-top:16px"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>

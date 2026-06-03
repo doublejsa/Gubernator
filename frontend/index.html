@@ -51,6 +51,8 @@
           }),
         });
         if (res.ok) {
+          const data = await res.json();
+          localStorage.setItem('gov_token', data.access_token);
           location.href = '/app';
         } else {
           const data = await res.json();
@@ -84,8 +86,11 @@
             password: document.getElementById('password').value,
           }),
         });
-        if (res.ok) { location.href = '/app'; }
-        else {
+        if (res.ok) {
+          const data = await res.json();
+          localStorage.setItem('gov_token', data.access_token);
+          location.href = '/app';
+        } else {
           const data = await res.json();
           const err = document.getElementById('login-error');
           err.textContent = data.detail || 'Registration failed';
