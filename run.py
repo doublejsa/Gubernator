@@ -10,4 +10,5 @@ if __name__ == "__main__":
         reload=True,
         reload_excludes=["*.pyc", ".venv/*", "__pycache__/*"],
         log_level="info",
+        timeout_graceful_shutdown=3,   # don't hang forever waiting for WS tasks to close
     )

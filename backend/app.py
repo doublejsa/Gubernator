@@ -59,6 +59,28 @@ async def app_page():
     return FileResponse(FRONTEND_DIR / "app.html")
 
 
+# ── OpenClaw stats (proxied from VPS for the TUI header badges) ───────────────
+@app.get("/api/openclaw-stats")
+async def openclaw_stats(user: User = Depends(get_current_user)):
+    """Fetched client-side after each VPS command to update context/cache badges.
+    Requires an active shell session for this user — returns empty if not connected."""
+    import re as _re
+    sessions = _user_sessions.get(str(user.id), {})
+    shell    = sessions.get("shell")
+    if not (shell and shell.connected):
+        return JSONResponse({"context_pct": None, "cache_pct": None})
+    loop = asyncio.get_event_loop()
+    output = await loop.run_in_executor(None, lambda: shell.exec("openclaw status", timeout=10))
+    ctx   = _re.search(r'(\d+)k/(\d+)k \((\d+)%\)', output)
+    cache = _re.search(r'(\d+)% cached', output)
+    return {
+        "context_pct":     int(ctx.group(3))   if ctx   else None,
+        "context_used_k":  int(ctx.group(1))   if ctx   else None,
+        "context_total_k": int(ctx.group(2))   if ctx   else None,
+        "cache_pct":       int(cache.group(1)) if cache else None,
+    }
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 class RegisterIn(BaseModel):
     email: str
