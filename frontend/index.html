@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Gubernator</title>
+  <link rel="stylesheet" href="/static/login.css"/>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">
+        <span class="logo-icon">⚙️</span>
+        <span class="logo-name">Gubernator</span>
+      </div>
+      <p class="login-sub">AI Agent Control Panel</p>
+
+      <div id="login-error" class="login-error" style="display:none"></div>
+
+      <form id="login-form" onsubmit="handleLogin(event)">
+        <label>Email</label>
+        <input type="email" id="email" autocomplete="email" required/>
+        <label>Password</label>
+        <input type="password" id="password" autocomplete="current-password" required/>
+        <button type="submit" id="login-btn">Sign in</button>
+      </form>
+
+      <div class="login-register">
+        No account? <a href="#" onclick="showRegister()">Create one</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Redirect if already logged in
+    fetch('/api/auth/me').then(r => { if (r.ok) location.href = '/app'; });
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const btn = document.getElementById('login-btn');
+      btn.disabled = true; btn.textContent = 'Signing in…';
+      const err = document.getElementById('login-error');
+      err.style.display = 'none';
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            email:    document.getElementById('email').value,
+            password: document.getElementById('password').value,
+          }),
+        });
+        if (res.ok) {
+          location.href = '/app';
+        } else {
+          const data = await res.json();
+          err.textContent = data.detail || 'Login failed';
+          err.style.display = '';
+          btn.disabled = false; btn.textContent = 'Sign in';
+        }
+      } catch (_) {
+        err.textContent = 'Could not reach server';
+        err.style.display = '';
+        btn.disabled = false; btn.textContent = 'Sign in';
+      }
+    }
+
+    function showRegister() {
+      const form = document.getElementById('login-form');
+      form.innerHTML = `
+        <label>Email</label>
+        <input type="email" id="email" required/>
+        <label>Password</label>
+        <input type="password" id="password" required/>
+        <button type="submit">Create account</button>
+      `;
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            email:    document.getElementById('email').value,
+            password: document.getElementById('password').value,
+          }),
+        });
+        if (res.ok) { location.href = '/app'; }
+        else {
+          const data = await res.json();
+          const err = document.getElementById('login-error');
+          err.textContent = data.detail || 'Registration failed';
+          err.style.display = '';
+        }
+      };
+    }
+  </script>
+</body>
+</html>

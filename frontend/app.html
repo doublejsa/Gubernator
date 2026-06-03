@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Gubernator</title>
+</head>
+<body style="background:#0d1117;color:#e6edf3;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+  <div style="text-align:center">
+    <div style="font-size:48px;margin-bottom:16px">⚙️</div>
+    <h1 style="font-size:24px;margin-bottom:8px">Gubernator</h1>
+    <p style="color:#8b949e">App shell — coming next</p>
+    <button onclick="logout()" style="margin-top:24px;padding:8px 20px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#e6edf3;cursor:pointer;font-size:13px;">
+      Sign out
+    </button>
+  </div>
+  <script>
+    // Guard: redirect to login if not authenticated
+    fetch('/api/auth/me').then(r => { if (!r.ok) location.href = '/'; });
+    async function logout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      location.href = '/';
+    }
+  </script>
+</body>
+</html>
