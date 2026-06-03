@@ -310,6 +310,19 @@ function addCollapsibleOutput(icon, label, cmd, output) {
 }
 function addVpsOutputBubble(cmd, output) { addCollapsibleOutput('💻', 'VPS Output', cmd, output); }
 function addTuiOutputBubble(cmd, output) { addCollapsibleOutput('🦞', 'OpenClaw TUI Output', cmd, output); }
+function addNoApiKeyBubble() {
+  const el = document.createElement('div');
+  el.className = 'bubble credits-error';
+  el.innerHTML = `
+🔑 <strong>Claude API key not set</strong><br><br>
+Gubernator needs your Anthropic API key to use Claude.<br><br>
+<button class="retry-btn" onclick="openSettingsModal()" style="margin-bottom:10px">⚙️ Open Settings to add it</button><br>
+Or get a key at <a href="https://console.anthropic.com/settings/api-keys" target="_blank">console.anthropic.com</a>
+  `.trim();
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat();
+}
+
 function addCreditsBubble() {
   const el = document.createElement('div'); el.className = 'bubble credits-error';
   el.innerHTML = `💳 <strong>Anthropic API credits exhausted</strong><br><br>The Claude column is unavailable until credits are topped up.<br><br>👉 <a href="https://console.anthropic.com/settings/billing" target="_blank">console.anthropic.com → Billing</a><br><br><em>Once topped up, click Retry.</em><br><br><button class="retry-btn" onclick="retryLastMessage(this)">↩ Retry</button>`;
@@ -402,6 +415,7 @@ function initChat() {
         if (currentClaudeBubble) { currentClaudeBubble.remove(); currentClaudeBubble = null; }
         if (msg.subtype === 'credits_exhausted') addCreditsBubble();
         else if (msg.subtype === 'rate_limit')   addRateLimitBubble();
+        else if (msg.subtype === 'no_api_key')   addNoApiKeyBubble();
         else addBubble('error', msg.message || 'Unknown error');
         sending = false; setActionButtonsDisabled(false);
         document.getElementById('chat-send').disabled = false; break;
@@ -533,6 +547,36 @@ async function deleteVps(id, label) {
   if (!confirm(`Delete VPS "${label}"?`)) return;
   await fetch(`/api/vps/${id}`, { method: 'DELETE' });
   openVpsModal();
+}
+
+// ── Settings modal ────────────────────────────────────────────────────────────
+async function openSettingsModal() {
+  openModal('settings-modal');
+  // Show whether a key is already saved
+  const res   = await fetch('/api/credentials');
+  const creds = await res.json();
+  const has   = creds.some(c => c.name === '_anthropic_key');
+  const status = document.getElementById('sf-apikey-status');
+  status.textContent = has ? '✓ API key saved' : '✗ No API key saved yet';
+  status.style.color = has ? 'var(--green)' : 'var(--orange)';
+}
+
+async function saveApiKey() {
+  const key = document.getElementById('sf-apikey').value.trim();
+  if (!key || !key.startsWith('sk-')) { alert('Enter a valid Anthropic API key (starts with sk-)'); return; }
+  const res = await fetch('/api/credentials', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '_anthropic_key', username: '', password: key, notes: 'Anthropic API key', vps_synced: false }),
+  });
+  if (res.ok) {
+    document.getElementById('sf-apikey').value = '';
+    document.getElementById('sf-apikey-status').textContent = '✓ Saved — reconnect Claude to use it';
+    document.getElementById('sf-apikey-status').style.color = 'var(--green)';
+    // Reconnect the chat WebSocket to pick up the new key
+    if (chatWs) { chatWs.close(); }
+  } else {
+    alert('Failed to save API key');
+  }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

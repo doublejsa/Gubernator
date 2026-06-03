@@ -14,9 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import ANTHROPIC_API_KEY
-from backend.models import User, VpsConnection, ChatSession
+from backend.models import User, VpsConnection, ChatSession, Credential
 from backend.terminal import PTYSession
 from backend.vault import get_user_vault_key, decrypt_secret
+
+ANTHROPIC_KEY_CRED = "_anthropic_key"   # reserved credential name for per-user API key
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 TMUX_SESSION        = "ocmgr-tui"
@@ -180,11 +182,21 @@ async def pty_ws_handler(ws: WebSocket, session: PTYSession,
 async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_ref: dict):
     await ws.accept()
 
-    if not ANTHROPIC_API_KEY:
-        await ws.send_json({"type": "error", "message": "ANTHROPIC_API_KEY not set"})
+    # Resolve API key: user's own key takes priority over server env var
+    vault_key = get_user_vault_key(user)
+    key_cred  = (await db.execute(
+        select(Credential).where(Credential.user_id == user.id, Credential.name == ANTHROPIC_KEY_CRED)
+    )).scalar_one_or_none()
+    effective_api_key = (
+        decrypt_secret(vault_key, key_cred.password_enc) if key_cred
+        else ANTHROPIC_API_KEY
+    )
+
+    if not effective_api_key:
+        await ws.send_json({"type": "error", "subtype": "no_api_key"})
         return
 
-    aclient = _anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    aclient = _anthropic.AsyncAnthropic(api_key=effective_api_key)
 
     # Load VPS credentials for this user
     vps_result = await db.execute(
