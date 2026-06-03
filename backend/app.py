@@ -3,17 +3,19 @@ Gubernator — AI Agent Control Panel
 FastAPI backend: auth, credential vault, VPS/TUI/Claude WebSocket sessions.
 """
 from __future__ import annotations
-import os, uuid
+import asyncio, os, uuid
 from pathlib import Path
-from fastapi import FastAPI, Depends, HTTPException, Response, status
+from fastapi import FastAPI, Depends, HTTPException, Response, WebSocket, WebSocketDisconnect, status, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
+from jose import JWTError, jwt
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.db import get_db, engine, Base
+from backend.config import SECRET_KEY, ALGORITHM
+from backend.db import get_db, engine, Base, SessionLocal
 from backend.models import User, VpsConnection, Credential
 from backend.auth import (
     hash_password, verify_password, create_access_token, get_current_user
@@ -22,6 +24,8 @@ from backend.vault import (
     generate_vault_key, encrypt_vault_key, get_user_vault_key,
     encrypt_secret, decrypt_secret
 )
+from backend.terminal import PTYSession
+from backend.ws_handlers import pty_ws_handler, chat_ws_handler
 
 BASE_DIR     = Path(__file__).parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -210,3 +214,82 @@ async def delete_credential(cred_id: uuid.UUID, user: User = Depends(get_current
     await db.delete(cred)
     await db.commit()
     return {"ok": True}
+
+
+# ── WebSocket auth helper ─────────────────────────────────────────────────────
+async def ws_get_user(token: str, db: AsyncSession) -> User:
+    """Authenticate a WebSocket connection via ?token= query param."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+    except JWTError:
+        return None
+    result = await db.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
+
+
+# Per-user terminal sessions — keyed by user_id string
+_user_sessions: dict[str, dict] = {}   # {user_id: {"tui": PTYSession, "shell": PTYSession}}
+
+def get_user_sessions(user_id: str) -> dict:
+    if user_id not in _user_sessions:
+        _user_sessions[user_id] = {}
+    return _user_sessions[user_id]
+
+
+# ── WebSocket routes ──────────────────────────────────────────────────────────
+@app.websocket("/ws/tui")
+async def ws_tui(ws: WebSocket, token: str = Query(...)):
+    async with SessionLocal() as db:
+        user = await ws_get_user(token, db)
+        if not user:
+            await ws.close(code=4001)
+            return
+        vps = (await db.execute(
+            select(VpsConnection).where(VpsConnection.user_id == user.id, VpsConnection.is_default == True)
+        )).scalar_one_or_none()
+        if not vps:
+            await ws.accept()
+            await ws.send_json({"type": "error", "message": "No VPS configured"})
+            await ws.close()
+            return
+        vault_key = get_user_vault_key(user)
+        password  = decrypt_secret(vault_key, vps.password_enc) if vps.password_enc else ""
+        TMUX = "ocmgr-tui"
+        cmd  = (f"tmux new-session -d -s {TMUX} 'openclaw tui' 2>/dev/null; "
+                f"tmux set-option -t {TMUX} mouse on 2>/dev/null; "
+                f"tmux attach-session -t {TMUX}")
+        sessions = get_user_sessions(str(user.id))
+        await pty_ws_handler(ws, PTYSession(), vps.host, vps.port, vps.username, password, cmd, "tui", sessions)
+
+
+@app.websocket("/ws/shell")
+async def ws_shell(ws: WebSocket, token: str = Query(...)):
+    async with SessionLocal() as db:
+        user = await ws_get_user(token, db)
+        if not user:
+            await ws.close(code=4001)
+            return
+        vps = (await db.execute(
+            select(VpsConnection).where(VpsConnection.user_id == user.id, VpsConnection.is_default == True)
+        )).scalar_one_or_none()
+        if not vps:
+            await ws.accept()
+            await ws.send_json({"type": "error", "message": "No VPS configured"})
+            await ws.close()
+            return
+        vault_key = get_user_vault_key(user)
+        password  = decrypt_secret(vault_key, vps.password_enc) if vps.password_enc else ""
+        sessions  = get_user_sessions(str(user.id))
+        await pty_ws_handler(ws, PTYSession(), vps.host, vps.port, vps.username, password, None, "shell", sessions)
+
+
+@app.websocket("/ws/chat")
+async def ws_chat(ws: WebSocket, token: str = Query(...)):
+    async with SessionLocal() as db:
+        user = await ws_get_user(token, db)
+        if not user:
+            await ws.close(code=4001)
+            return
+        sessions = get_user_sessions(str(user.id))
+        await chat_ws_handler(ws, user, db, sessions)
