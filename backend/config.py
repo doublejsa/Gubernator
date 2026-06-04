@@ -14,10 +14,9 @@ SECRET_KEY       = os.getenv("SECRET_KEY", "change-me-in-production")
 ALGORITHM        = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24h
 
-# ── Anthropic ─────────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-
 # ── Vault encryption ──────────────────────────────────────────────────────────
+# Note: Anthropic API keys are stored per-user in the credential vault (_anthropic_key).
+# There is no server-level ANTHROPIC_API_KEY — each user brings their own.
 # Per-user vault keys are stored in the DB (encrypted with this master key).
 # In production: use a proper KMS or at minimum a strong random value.
 VAULT_MASTER_KEY = os.getenv("VAULT_MASTER_KEY", "")
