@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent.parent / ".env")
+load_dotenv(Path(__file__).parent.parent / ".env", override=True)
 
 # ── Database ──────────────────────────────────────────────────────────────────
 DATABASE_URL     = os.getenv("DATABASE_URL", "postgresql+asyncpg://gubernator:gubernator@localhost:5432/gubernator")

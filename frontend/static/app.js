@@ -78,7 +78,9 @@ function initTerminal(wrapperId, wsPath, col) {
       } else {
         try {
           const msg = JSON.parse(e.data);
-          if (msg.type === 'error') {
+          if (msg.type === 'error' && msg.subtype === 'auth_expired') {
+            localStorage.removeItem('gov_token'); location.href = '/';
+          } else if (msg.type === 'error') {
             setStatus(col, 'error', 'SSH Error');
             term.write(`\r\n\x1b[31m✗ ${msg.message}\x1b[0m\r\n`, () => term.scrollToBottom());
           } else if (msg.type === 'ssh_disconnected') {
@@ -416,6 +418,7 @@ function initChat() {
         if (msg.subtype === 'credits_exhausted') addCreditsBubble();
         else if (msg.subtype === 'rate_limit')   addRateLimitBubble();
         else if (msg.subtype === 'no_api_key')   addNoApiKeyBubble();
+        else if (msg.subtype === 'auth_expired') { localStorage.removeItem('gov_token'); location.href = '/'; }
         else addBubble('error', msg.message || 'Unknown error');
         sending = false; setActionButtonsDisabled(false);
         document.getElementById('chat-send').disabled = false; break;

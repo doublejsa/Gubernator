@@ -265,7 +265,9 @@ async def ws_tui(ws: WebSocket, token: str = Query(...)):
     async with SessionLocal() as db:
         user = await ws_get_user(token, db)
         if not user:
-            await ws.close(code=4001)
+            await ws.accept()
+            await ws.send_json({"type": "error", "subtype": "auth_expired"})
+            await ws.close()
             return
         vps = (await db.execute(
             select(VpsConnection).where(VpsConnection.user_id == user.id, VpsConnection.is_default == True)
@@ -290,7 +292,9 @@ async def ws_shell(ws: WebSocket, token: str = Query(...)):
     async with SessionLocal() as db:
         user = await ws_get_user(token, db)
         if not user:
-            await ws.close(code=4001)
+            await ws.accept()
+            await ws.send_json({"type": "error", "subtype": "auth_expired"})
+            await ws.close()
             return
         vps = (await db.execute(
             select(VpsConnection).where(VpsConnection.user_id == user.id, VpsConnection.is_default == True)
@@ -311,7 +315,9 @@ async def ws_chat(ws: WebSocket, token: str = Query(...)):
     async with SessionLocal() as db:
         user = await ws_get_user(token, db)
         if not user:
-            await ws.close(code=4001)
+            await ws.accept()
+            await ws.send_json({"type": "error", "subtype": "auth_expired"})
+            await ws.close()
             return
         sessions = get_user_sessions(str(user.id))
         await chat_ws_handler(ws, user, db, sessions)
