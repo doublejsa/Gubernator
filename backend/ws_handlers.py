@@ -134,7 +134,20 @@ async def pty_ws_handler(ws: WebSocket, session: PTYSession,
     try:
         await session.connect(host, port, username, password, command=command)
     except Exception as e:
-        await ws.send_json({"type": "error", "message": f"SSH error: {e}"})
+        err = str(e)
+        # Distinguish fatal config errors from transient network drops
+        fatal = (
+            "nodename nor servname" in err or   # bad hostname / DNS failure
+            "Name or service not known" in err or
+            "Connection refused" in err or
+            "Authentication failed" in err or
+            "No authentication methods" in err
+        )
+        await ws.send_json({
+            "type":    "error",
+            "subtype": "ssh_fatal" if fatal else "ssh_error",
+            "message": f"SSH error: {err}",
+        })
         await ws.close()
         return
 

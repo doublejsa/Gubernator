@@ -52,6 +52,7 @@ function initTerminal(wrapperId, wsPath, col) {
   const handle = { ws: null, fit };
   let reconnectDelay = 2000;
   let reconnectTimer = null;
+  let fatalError = false;
 
   function connect() {
     const url = `${WS_PROTO}://${HOST}${wsPath}?token=${encodeURIComponent(authToken)}`;
@@ -67,6 +68,7 @@ function initTerminal(wrapperId, wsPath, col) {
       ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
     };
     ws.onclose = () => {
+      if (fatalError) return;   // config error — don't loop
       setStatus(col, 'error', `Disconnected — reconnecting in ${Math.round(reconnectDelay/1000)}s…`);
       scheduleReconnect();
     };
@@ -80,6 +82,13 @@ function initTerminal(wrapperId, wsPath, col) {
           const msg = JSON.parse(e.data);
           if (msg.type === 'error' && msg.subtype === 'auth_expired') {
             localStorage.removeItem('gov_token'); location.href = '/';
+          } else if (msg.type === 'error' && msg.subtype === 'ssh_fatal') {
+            // Fatal config error — stop reconnecting, show fix instructions
+            fatalError = true;
+            setStatus(col, 'error', 'Cannot connect');
+            term.write(`\r\n\x1b[31m✗ ${msg.message}\x1b[0m\r\n\x1b[33mCheck your VPS settings: click 🖥 VPS in the bottom bar.\x1b[0m\r\n`, () => term.scrollToBottom());
+            addVpsErrorBubble(msg.message);
+            return;
           } else if (msg.type === 'error') {
             setStatus(col, 'error', 'SSH Error');
             term.write(`\r\n\x1b[31m✗ ${msg.message}\x1b[0m\r\n`, () => term.scrollToBottom());
@@ -312,6 +321,27 @@ function addCollapsibleOutput(icon, label, cmd, output) {
 }
 function addVpsOutputBubble(cmd, output) { addCollapsibleOutput('💻', 'VPS Output', cmd, output); }
 function addTuiOutputBubble(cmd, output) { addCollapsibleOutput('🦞', 'OpenClaw TUI Output', cmd, output); }
+function addVpsErrorBubble(detail) {
+  // Only show once — remove any existing VPS error bubble first
+  document.querySelectorAll('.vps-error-bubble').forEach(el => el.remove());
+  const el = document.createElement('div');
+  el.className = 'bubble credits-error vps-error-bubble';
+  const reason = detail.includes('nodename') || detail.includes('Name or service')
+    ? "The server address couldn't be found. Check for typos in the hostname or IP."
+    : detail.includes('Connection refused')
+    ? "The server refused the connection. Check the port number (usually 22)."
+    : detail.includes('Authentication')
+    ? "Login failed. Check your username and password."
+    : "Couldn't connect to your server.";
+  el.innerHTML = `
+🖥️ <strong>Can't reach your server</strong><br><br>
+${reason}<br><br>
+<button class="retry-btn" onclick="openVpsModal()" style="margin-bottom:4px">🖥 Update VPS Settings</button>
+  `.trim();
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat();
+}
+
 function addNoApiKeyBubble() {
   const el = document.createElement('div');
   el.className = 'bubble credits-error';
@@ -539,7 +569,9 @@ async function saveVps() {
   });
   if (res.ok) {
     closeModal('vps-modal');
-    addBubble('status', '✅ VPS saved — reconnecting terminals…');
+    // Remove any existing error bubble and reload so terminals reconnect fresh
+    document.querySelectorAll('.vps-error-bubble').forEach(el => el.remove());
+    addBubble('status', '✅ VPS saved — reconnecting…');
     setTimeout(() => location.reload(), 500);
   } else {
     const d = await res.json(); alert(d.detail || 'Save failed');
