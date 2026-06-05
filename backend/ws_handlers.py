@@ -208,11 +208,12 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
 
     aclient = _anthropic.AsyncAnthropic(api_key=effective_api_key)
 
-    # Load VPS credentials for this user
+    # Load VPS credentials for this user — use first() to survive any accidental duplicates
     vps_result = await db.execute(
-        select(VpsConnection).where(VpsConnection.user_id == user.id, VpsConnection.is_default == True)
+        select(VpsConnection).where(VpsConnection.user_id == user.id)
+        .order_by(VpsConnection.created_at)
     )
-    vps_conn = vps_result.scalar_one_or_none()
+    vps_conn = vps_result.scalars().first()
     if not vps_conn:
         await ws.send_json({"type": "error", "message": "No VPS configured. Add one in Settings."})
 

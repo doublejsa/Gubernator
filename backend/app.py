@@ -150,12 +150,26 @@ async def list_vps(user: User = Depends(get_current_user), db: AsyncSession = De
 @app.post("/api/vps")
 async def add_vps(body: VpsIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     vault_key    = get_user_vault_key(user)
-    password_enc = encrypt_secret(vault_key, body.password)
-    conn = VpsConnection(
-        user_id=user.id, label=body.label, host=body.host,
-        port=body.port, username=body.username, password_enc=password_enc,
-    )
-    db.add(conn)
+    password_enc = encrypt_secret(vault_key, body.password.strip())   # strip accidental whitespace
+    # Upsert: update existing default if one exists, otherwise create new
+    existing = (await db.execute(
+        select(VpsConnection).where(VpsConnection.user_id == user.id)
+        .order_by(VpsConnection.created_at).limit(1)
+    )).scalar_one_or_none()
+    if existing:
+        existing.label        = body.label
+        existing.host         = body.host.strip()
+        existing.port         = body.port
+        existing.username     = body.username.strip()
+        existing.password_enc = password_enc
+        existing.is_default   = True
+        conn = existing
+    else:
+        conn = VpsConnection(
+            user_id=user.id, label=body.label, host=body.host.strip(),
+            port=body.port, username=body.username.strip(), password_enc=password_enc,
+        )
+        db.add(conn)
     await db.commit()
     await db.refresh(conn)
     return {"id": str(conn.id), "label": conn.label, "host": conn.host}
@@ -270,8 +284,9 @@ async def ws_tui(ws: WebSocket, token: str = Query(...)):
             await ws.close()
             return
         vps = (await db.execute(
-            select(VpsConnection).where(VpsConnection.user_id == user.id, VpsConnection.is_default == True)
-        )).scalar_one_or_none()
+            select(VpsConnection).where(VpsConnection.user_id == user.id)
+            .order_by(VpsConnection.created_at)
+        )).scalars().first()
         if not vps:
             await ws.accept()
             await ws.send_json({"type": "error", "message": "No VPS configured"})
@@ -297,8 +312,9 @@ async def ws_shell(ws: WebSocket, token: str = Query(...)):
             await ws.close()
             return
         vps = (await db.execute(
-            select(VpsConnection).where(VpsConnection.user_id == user.id, VpsConnection.is_default == True)
-        )).scalar_one_or_none()
+            select(VpsConnection).where(VpsConnection.user_id == user.id)
+            .order_by(VpsConnection.created_at)
+        )).scalars().first()
         if not vps:
             await ws.accept()
             await ws.send_json({"type": "error", "message": "No VPS configured"})
