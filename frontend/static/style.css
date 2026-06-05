@@ -40,16 +40,29 @@ html, body {
 #col-chat {
   width: 33%; min-width: 220px; max-width: 60%;
   flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden;
+  transition: width 0.3s ease, max-width 0.3s ease;
+}
+/* Claude expands to full width when terminals are hidden */
+#col-chat.terminals-hidden {
+  width: 100%; max-width: 100%; flex: 1;
 }
 
 .v-divider {
   width: 5px; background: var(--border);
   cursor: col-resize; flex-shrink: 0;
-  transition: background 0.15s; position: relative; z-index: 10;
+  transition: background 0.15s, width 0.3s ease, opacity 0.3s ease;
+  position: relative; z-index: 10;
 }
 .v-divider:hover, .v-divider.dragging { background: var(--accent); }
+.v-divider.terminals-hidden { width: 0; opacity: 0; pointer-events: none; }
 
-.right-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.right-panel {
+  flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+  transition: width 0.3s ease, opacity 0.3s ease, flex 0.3s ease;
+}
+.right-panel.terminals-hidden {
+  width: 0; flex: none; opacity: 0; pointer-events: none; overflow: hidden;
+}
 
 #col-tui   { flex: 2; min-height: 100px; display: flex; flex-direction: column; overflow: hidden; }
 
@@ -279,12 +292,16 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
   height: 22px; padding: 0 10px;
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
   color: var(--dim); font-size: 11px; cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
   white-space: nowrap; display: flex; align-items: center; gap: 5px;
 }
 .bar-btn:hover { color: var(--text); border-color: var(--dim); }
 .bar-spacer { flex: 1; }
 .bar-user { font-size: 11px; color: var(--dim); }
+
+/* Terminals toggle — slightly accented so it's findable */
+.bar-btn-terminals          { color: var(--dim); border-color: var(--border); }
+.bar-btn-terminals.active   { color: var(--accent); border-color: var(--accent); background: #0d1f33; }
 
 /* ── Modal overlay ─────────────────────────────────────────────────────────── */
 .modal-overlay {

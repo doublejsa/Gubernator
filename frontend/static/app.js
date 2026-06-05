@@ -136,6 +136,38 @@ function reflowTerminals() {
     shellWs.send(JSON.stringify({ type: 'resize', cols: shellTerm.cols, rows: shellTerm.rows }));
 }
 
+// ── Terminals show/hide ───────────────────────────────────────────────────────
+let terminalsVisible = localStorage.getItem('gov_terminals') === 'open';  // hidden by default
+
+function applyTerminalsState(animate) {
+  const right  = document.getElementById('right-panel');
+  const chat   = document.getElementById('col-chat');
+  const vdiv   = document.getElementById('v-divider');
+  const btn    = document.getElementById('terminals-toggle-btn');
+
+  if (terminalsVisible) {
+    right.classList.remove('terminals-hidden');
+    chat.classList.remove('terminals-hidden');
+    vdiv.classList.remove('terminals-hidden');
+    btn.classList.add('active');
+    btn.textContent = '✕ Terminals';
+  } else {
+    right.classList.add('terminals-hidden');
+    chat.classList.add('terminals-hidden');
+    vdiv.classList.add('terminals-hidden');
+    btn.classList.remove('active');
+    btn.textContent = '⊞ Terminals';
+  }
+  // Reflow after CSS transition so xterm sizes correctly
+  setTimeout(reflowTerminals, animate ? 320 : 0);
+}
+
+function toggleTerminals() {
+  terminalsVisible = !terminalsVisible;
+  localStorage.setItem('gov_terminals', terminalsVisible ? 'open' : 'closed');
+  applyTerminalsState(true);
+}
+
 // ── Console collapse (Option B — chevron tab on divider) ──────────────────────
 let consoleVisible = localStorage.getItem('gov_console') !== 'open';   // hidden by default
 
@@ -183,6 +215,7 @@ function initDragDividers() {
   let dragging = null, startX, startY, startW, startH;
 
   vDiv.addEventListener('mousedown', (e) => {
+    if (!terminalsVisible) return;   // can't drag when terminals are hidden
     dragging = 'v'; startX = e.clientX; startW = colChat.offsetWidth;
     vDiv.classList.add('dragging'); document.body.classList.add('dragging-v'); e.preventDefault();
   });
@@ -786,7 +819,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check setup state — show onboarding wizard for new users
   await checkOnboarding();
 
-  // Set initial console visibility and agent subtitle
+  // Set initial panel visibility and agent subtitle
+  applyTerminalsState(false);
   applyConsoleState(false);
   updateAgentSubtitle();
 
