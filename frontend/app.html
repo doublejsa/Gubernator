@@ -37,22 +37,25 @@
       <!-- Right panel -->
       <div class="right-panel" id="right-panel">
 
-        <!-- TUI -->
+        <!-- Agent (formerly OpenClaw TUI) -->
         <div class="col" id="col-tui">
           <div class="col-header">
             <span class="col-icon">🦞</span>
-            <span class="col-title">OpenClaw TUI</span>
+            <div class="col-header-titles">
+              <span class="col-title">Agent</span>
+              <span class="col-subtitle" id="agent-subtitle">powered by OpenClaw</span>
+            </div>
             <span class="status-dot" id="status-tui"></span>
             <span class="status-label" id="status-label-tui">Connecting…</span>
             <div class="header-stats" id="tui-stats">
               <span class="stat-badge accent" id="stat-oc-ctx"   title="OpenClaw context">—</span>
               <span class="stat-badge"        id="stat-oc-cache" title="Cache hit rate">—</span>
             </div>
-            <button class="scroll-mode-btn" id="tui-scroll-btn" onclick="enterTuiScrollMode()" title="Scroll TUI history">↑ Scroll</button>
-            <button class="cancel-tui-btn"  id="tui-cancel-btn" onclick="cancelTuiPoll()" style="display:none" title="Cancel TUI poll">⛔ Cancel</button>
+            <button class="scroll-mode-btn" id="tui-scroll-btn" onclick="enterTuiScrollMode()" title="Scroll agent history">↑ Scroll</button>
+            <button class="cancel-tui-btn"  id="tui-cancel-btn" onclick="cancelTuiPoll()" style="display:none" title="Cancel agent poll">⛔ Cancel</button>
           </div>
           <div class="tui-input-hint" id="tui-input-hint" style="display:none">
-            <span>🔐 Agent needs input — type directly in the TUI, or use the secure field:</span>
+            <span>🔐 Agent needs input — type directly in the terminal, or use the secure field:</span>
             <input id="tui-direct-input" class="tui-direct-field" type="password" placeholder="password / API key…" autocomplete="off"/>
             <button class="tui-direct-send" onclick="sendDirectToTui()">↵</button>
             <button class="tui-hint-close"  onclick="dismissTuiHint()">✕</button>
@@ -60,13 +63,18 @@
           <div class="terminal-wrap" id="tui-terminal"></div>
         </div>
 
-        <div class="h-divider" id="h-divider"></div>
+        <!-- Console divider with collapse tab -->
+        <div class="h-divider" id="h-divider">
+          <button class="console-tab" id="console-tab" onclick="toggleConsole()" title="Show/hide Console">
+            <span id="console-tab-label">▲ Console</span>
+          </button>
+        </div>
 
-        <!-- Shell -->
+        <!-- Console (formerly VPS Shell) -->
         <div class="col" id="col-shell">
           <div class="col-header">
             <span class="col-icon">💻</span>
-            <span class="col-title">VPS Shell</span>
+            <span class="col-title">Console</span>
             <span class="status-dot" id="status-shell"></span>
             <span class="status-label" id="status-label-shell">Connecting…</span>
           </div>

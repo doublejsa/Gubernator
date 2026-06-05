@@ -57,8 +57,43 @@ html, body {
   height: 5px; background: var(--border);
   cursor: row-resize; flex-shrink: 0;
   transition: background 0.15s; position: relative; z-index: 10;
+  display: flex; align-items: center; justify-content: center;
 }
 .h-divider:hover, .h-divider.dragging { background: var(--accent); }
+
+/* Console collapse tab — sits centred on the h-divider */
+.console-tab {
+  position: absolute;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  padding: 2px 14px 3px;
+  top: 0; left: 50%; transform: translateX(-50%);
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  z-index: 20;
+  user-select: none;
+}
+.console-tab:hover { color: var(--accent); border-color: var(--accent); }
+.h-divider.console-hidden .console-tab {
+  border-radius: 8px 8px 0 0;
+  top: auto; bottom: 0;
+}
+
+/* Console panel collapse */
+#col-shell {
+  transition: height 0.25s ease, min-height 0.25s ease;
+  overflow: hidden;
+}
+#col-shell.collapsed {
+  height: 0 !important;
+  min-height: 0 !important;
+  flex: none !important;
+}
 
 #col-shell { flex: 1; min-height: 80px; display: flex; flex-direction: column; overflow: hidden; }
 
@@ -72,6 +107,15 @@ html, body {
 }
 .col-icon  { font-size: 15px; }
 .col-title { font-size: 13px; font-weight: 600; }
+
+.col-header-titles {
+  display: flex; flex-direction: column; gap: 1px; justify-content: center;
+}
+.col-subtitle {
+  font-size: 10px; color: var(--dim); font-weight: 400;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 220px;
+}
 
 .status-dot {
   width: 7px; height: 7px; border-radius: 50%;

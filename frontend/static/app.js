@@ -136,6 +136,44 @@ function reflowTerminals() {
     shellWs.send(JSON.stringify({ type: 'resize', cols: shellTerm.cols, rows: shellTerm.rows }));
 }
 
+// ── Console collapse (Option B — chevron tab on divider) ──────────────────────
+let consoleVisible = localStorage.getItem('gov_console') !== 'open';   // hidden by default
+
+function applyConsoleState(animate) {
+  const shell  = document.getElementById('col-shell');
+  const hdiv   = document.getElementById('h-divider');
+  const label  = document.getElementById('console-tab-label');
+  if (consoleVisible) {
+    shell.classList.remove('collapsed');
+    hdiv.classList.remove('console-hidden');
+    label.textContent = '▼ Console';
+  } else {
+    shell.classList.add('collapsed');
+    hdiv.classList.add('console-hidden');
+    label.textContent = '▲ Console';
+  }
+  // Reflow terminals after transition completes
+  setTimeout(reflowTerminals, animate ? 280 : 0);
+}
+
+function toggleConsole() {
+  consoleVisible = !consoleVisible;
+  localStorage.setItem('gov_console', consoleVisible ? 'open' : 'closed');
+  applyConsoleState(true);
+}
+
+// ── Agent subtitle ────────────────────────────────────────────────────────────
+async function updateAgentSubtitle() {
+  try {
+    const vpsList = await (await fetch('/api/vps')).json();
+    const vps = vpsList[0];
+    if (vps) {
+      const sub = document.getElementById('agent-subtitle');
+      if (sub) sub.textContent = `${vps.host} · powered by OpenClaw`;
+    }
+  } catch (_) {}
+}
+
 function initDragDividers() {
   const vDiv     = document.getElementById('v-divider');
   const colChat  = document.getElementById('col-chat');
@@ -149,6 +187,8 @@ function initDragDividers() {
     vDiv.classList.add('dragging'); document.body.classList.add('dragging-v'); e.preventDefault();
   });
   hDiv.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.console-tab')) return;   // don't drag when clicking the tab
+    if (!consoleVisible) return;                     // can't drag when console is collapsed
     dragging = 'h'; startY = e.clientY; startH = colTui.offsetHeight;
     hDiv.classList.add('dragging'); document.body.classList.add('dragging-h'); e.preventDefault();
   });
@@ -745,6 +785,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Check setup state — show onboarding wizard for new users
   await checkOnboarding();
+
+  // Set initial console visibility and agent subtitle
+  applyConsoleState(false);
+  updateAgentSubtitle();
 
   const tui   = initTerminal('tui-terminal',   '/ws/tui',   'tui');
   const shell = initTerminal('shell-terminal', '/ws/shell', 'shell');
