@@ -295,7 +295,7 @@ async def ws_tui(ws: WebSocket, token: str = Query(...)):
         vault_key = get_user_vault_key(user)
         password  = decrypt_secret(vault_key, vps.password_enc) if vps.password_enc else ""
         TMUX = "ocmgr-tui"
-        cmd  = (f"tmux new-session -d -s {TMUX} 'openclaw tui' 2>/dev/null; "
+        cmd  = (f"tmux new-session -d -x 220 -y 50 -s {TMUX} 'openclaw tui' 2>/dev/null; "
                 f"tmux set-option -t {TMUX} mouse on 2>/dev/null; "
                 f"tmux attach-session -t {TMUX}")
         sessions = get_user_sessions(str(user.id))
