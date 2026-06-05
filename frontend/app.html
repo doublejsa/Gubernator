@@ -194,6 +194,140 @@
     </div>
   </div>
 
+  <!-- ── Onboarding wizard ───────────────────────────────────────────────── -->
+  <div id="onboarding" style="display:none">
+
+    <!-- Step 1: VPS -->
+    <div class="ob-step" id="ob-step-1">
+      <div class="ob-card">
+        <div class="ob-skip"><a href="#" onclick="skipOnboarding()">Skip setup →</a></div>
+        <div class="ob-progress">
+          <div class="ob-dot active"></div><div class="ob-dot"></div><div class="ob-dot"></div>
+        </div>
+        <div class="ob-icon">🖥️</div>
+        <h1 class="ob-title">Connect your server</h1>
+        <p class="ob-body">
+          Gubernator runs your AI agent on a <strong>VPS</strong> — a virtual private server.
+          Think of it as a computer in the cloud that stays on 24/7, running tasks even when
+          your laptop is closed. You'll need the login details your hosting provider gave you.
+        </p>
+        <div class="ob-explainer">
+          <div class="ob-explainer-row">
+            <span class="ob-explainer-icon">💡</span>
+            <span>Don't have a VPS yet? <a href="https://contabo.com" target="_blank">Contabo</a> and
+              <a href="https://www.hetzner.com" target="_blank">Hetzner</a> offer good value plans from ~$5/month.</span>
+          </div>
+        </div>
+        <div class="ob-form">
+          <label>Server address (IP or hostname)</label>
+          <input id="ob-host" placeholder="e.g. 144.91.74.171 or myserver.com" autocomplete="off"/>
+          <div style="display:flex;gap:12px">
+            <div style="flex:1">
+              <label>Port</label>
+              <input id="ob-port" value="22" placeholder="22"/>
+            </div>
+            <div style="flex:2">
+              <label>Username</label>
+              <input id="ob-user" value="root" placeholder="root"/>
+            </div>
+          </div>
+          <label>Password</label>
+          <div class="pw-row">
+            <input id="ob-pass" type="password" placeholder="Your server password" autocomplete="off"/>
+            <button class="pw-toggle" onclick="togglePw('ob-pass',this)">👁</button>
+          </div>
+          <label>Label <span style="color:var(--dim);font-weight:400">(optional)</span></label>
+          <input id="ob-label" placeholder="e.g. My OpenClaw Server"/>
+        </div>
+        <div id="ob-1-error" class="ob-error" style="display:none"></div>
+        <button class="ob-btn" onclick="obStep1Next()">
+          <span id="ob-1-label">Connect &amp; Continue →</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 2: API Key -->
+    <div class="ob-step" id="ob-step-2" style="display:none">
+      <div class="ob-card">
+        <div class="ob-skip"><a href="#" onclick="skipOnboarding()">Skip setup →</a></div>
+        <div class="ob-progress">
+          <div class="ob-dot done"></div><div class="ob-dot active"></div><div class="ob-dot"></div>
+        </div>
+        <div class="ob-icon">🤖</div>
+        <h1 class="ob-title">Add your Claude API key</h1>
+        <p class="ob-body">
+          Claude is the AI brain behind Gubernator. You need an API key from Anthropic — it's
+          like a password that lets Gubernator talk to Claude on your behalf. You're billed
+          directly by Anthropic based on usage (typically cents per session).
+        </p>
+        <div class="ob-explainer">
+          <div class="ob-explainer-row">
+            <span class="ob-explainer-icon">👉</span>
+            <span>
+              Get your key at
+              <a href="https://console.anthropic.com/settings/api-keys" target="_blank">
+                console.anthropic.com → API Keys
+              </a>
+              → click <strong>Create Key</strong> → copy the <code>sk-ant-…</code> value.
+            </span>
+          </div>
+        </div>
+        <div class="ob-form">
+          <label>API Key</label>
+          <div class="pw-row">
+            <input id="ob-apikey" type="password" placeholder="sk-ant-api03-…" autocomplete="off"/>
+            <button class="pw-toggle" onclick="togglePw('ob-apikey',this)">👁</button>
+          </div>
+        </div>
+        <div id="ob-2-error" class="ob-error" style="display:none"></div>
+        <button class="ob-btn" onclick="obStep2Next()">
+          <span id="ob-2-label">Save &amp; Continue →</span>
+        </button>
+        <div style="text-align:center;margin-top:12px">
+          <a href="#" onclick="obSkipStep2()" class="ob-skip-link">I'll add this later</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Ready -->
+    <div class="ob-step" id="ob-step-3" style="display:none">
+      <div class="ob-card ob-card-wide">
+        <div class="ob-progress">
+          <div class="ob-dot done"></div><div class="ob-dot done"></div><div class="ob-dot active"></div>
+        </div>
+        <div class="ob-icon">🎉</div>
+        <h1 class="ob-title">You're all set!</h1>
+        <p class="ob-body">Here's a quick look at what each panel does:</p>
+
+        <div class="ob-panels-tour">
+          <div class="ob-panel-card">
+            <div class="ob-panel-icon">🤖</div>
+            <div class="ob-panel-name">Claude</div>
+            <div class="ob-panel-desc">Your main chat window. Tell Claude what you want done — it figures out how to do it and keeps your AI agent on track.</div>
+          </div>
+          <div class="ob-panel-card">
+            <div class="ob-panel-icon">🦞</div>
+            <div class="ob-panel-name">Agent</div>
+            <div class="ob-panel-desc">Your AI agent, running live on your server. You can watch it work in real time — browsing, writing files, calling APIs.</div>
+          </div>
+          <div class="ob-panel-card">
+            <div class="ob-panel-icon">💻</div>
+            <div class="ob-panel-name">Console</div>
+            <div class="ob-panel-desc">A direct terminal on your server. Advanced users can run commands here manually. Claude uses it automatically behind the scenes.</div>
+          </div>
+        </div>
+
+        <div class="ob-tip">
+          💡 <strong>Tip:</strong> Just describe what you want in the Claude panel — in plain English.
+          You don't need to know any commands. Claude handles the technical side.
+        </div>
+
+        <button class="ob-btn" onclick="finishOnboarding()">Start using Gubernator →</button>
+      </div>
+    </div>
+
+  </div><!-- /onboarding -->
+
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
   <script src="/static/app.js"></script>

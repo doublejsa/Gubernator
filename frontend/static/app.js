@@ -552,6 +552,119 @@ async function deleteVps(id, label) {
   openVpsModal();
 }
 
+// ── Onboarding wizard ─────────────────────────────────────────────────────────
+async function checkOnboarding() {
+  const [vpsRes, credRes] = await Promise.all([
+    fetch('/api/vps'),
+    fetch('/api/credentials'),
+  ]);
+  const vpsList  = await vpsRes.json();
+  const credList = await credRes.json();
+  const hasVps   = vpsList.length > 0;
+  const hasKey   = credList.some(c => c.name === '_anthropic_key');
+
+  if (hasVps && hasKey) return false;   // fully set up — no onboarding needed
+
+  const ob = document.getElementById('onboarding');
+  ob.style.display = 'flex';
+
+  if (!hasVps) {
+    showObStep(1);
+  } else if (!hasKey) {
+    showObStep(2);
+  }
+  return true;
+}
+
+function showObStep(n) {
+  [1, 2, 3].forEach(i => {
+    document.getElementById(`ob-step-${i}`).style.display = i === n ? '' : 'none';
+  });
+}
+
+async function obStep1Next() {
+  const host  = document.getElementById('ob-host').value.trim();
+  const port  = parseInt(document.getElementById('ob-port').value) || 22;
+  const user  = document.getElementById('ob-user').value.trim() || 'root';
+  const pass  = document.getElementById('ob-pass').value;
+  const label = document.getElementById('ob-label').value.trim() || 'My VPS';
+  const err   = document.getElementById('ob-1-error');
+  const btn   = document.getElementById('ob-1-label');
+
+  err.style.display = 'none';
+  if (!host) { err.textContent = 'Please enter your server address.'; err.style.display = ''; return; }
+  if (!pass) { err.textContent = 'Please enter your server password.'; err.style.display = ''; return; }
+
+  btn.textContent = 'Connecting…';
+  document.querySelector('#ob-step-1 .ob-btn').disabled = true;
+
+  const res = await fetch('/api/vps', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label, host, port, username: user, password: pass }),
+  });
+
+  if (res.ok) {
+    showObStep(2);
+  } else {
+    const d = await res.json();
+    err.textContent = d.detail || 'Could not save — check your details and try again.';
+    err.style.display = '';
+  }
+  btn.textContent = 'Connect & Continue →';
+  document.querySelector('#ob-step-1 .ob-btn').disabled = false;
+}
+
+async function obStep2Next() {
+  const key = document.getElementById('ob-apikey').value.trim();
+  const err = document.getElementById('ob-2-error');
+  const btn = document.getElementById('ob-2-label');
+
+  err.style.display = 'none';
+  if (!key || !key.startsWith('sk-')) {
+    err.textContent = 'Please enter a valid Anthropic API key (starts with sk-).';
+    err.style.display = ''; return;
+  }
+
+  btn.textContent = 'Saving…';
+  document.querySelector('#ob-step-2 .ob-btn').disabled = true;
+
+  const res = await fetch('/api/credentials', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '_anthropic_key', username: '', password: key,
+                           notes: 'Anthropic API key', vps_synced: false }),
+  });
+
+  if (res.ok) {
+    showObStep(3);
+  } else {
+    err.textContent = 'Could not save the API key — please try again.';
+    err.style.display = '';
+  }
+  btn.textContent = 'Save & Continue →';
+  document.querySelector('#ob-step-2 .ob-btn').disabled = false;
+}
+
+function obSkipStep2() { showObStep(3); }
+
+function finishOnboarding() {
+  const ob = document.getElementById('onboarding');
+  ob.style.opacity = '0';
+  ob.style.transition = 'opacity 0.4s ease';
+  setTimeout(() => {
+    ob.style.display = 'none';
+    ob.style.opacity = '';
+    // Reconnect chat WebSocket now that credentials are set
+    if (chatWs) chatWs.close();
+    initChat();
+    // Reload terminals to pick up new VPS
+    location.reload();
+  }, 400);
+}
+
+function skipOnboarding() {
+  document.getElementById('onboarding').style.display = 'none';
+}
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 async function openSettingsModal() {
   openModal('settings-modal');
@@ -598,13 +711,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'Enter') { e.preventDefault(); sendDirectToTui(); }
   });
 
-  // Check if VPS is configured — if not, prompt setup
-  const vpsRes = await fetch('/api/vps');
-  const vpsList = await vpsRes.json();
-  if (!vpsList.length) {
-    openVpsModal();
-    addBubble('status', '⚙️ No VPS configured yet — add one to get started.');
-  }
+  // Check setup state — show onboarding wizard for new users
+  await checkOnboarding();
 
   const tui   = initTerminal('tui-terminal',   '/ws/tui',   'tui');
   const shell = initTerminal('shell-terminal', '/ws/shell', 'shell');

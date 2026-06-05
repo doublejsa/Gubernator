@@ -311,3 +311,129 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
 /* VPS setup modal */
 .vps-setup-info { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: var(--dim); line-height: 1.6; }
 .vps-setup-info strong { color: var(--text); }
+
+/* ── Onboarding wizard ─────────────────────────────────────────────────────── */
+#onboarding {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(13,17,23,0.97);
+  display: flex; align-items: center; justify-content: center;
+  animation: fade-in 0.3s ease;
+}
+
+.ob-step {
+  width: 100%; display: flex;
+  align-items: center; justify-content: center;
+  padding: 24px 16px;
+}
+
+.ob-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 44px;
+  width: 100%; max-width: 520px;
+  position: relative;
+  animation: modal-slide 0.25s ease;
+}
+.ob-card-wide { max-width: 680px; }
+
+.ob-skip {
+  position: absolute; top: 18px; right: 22px;
+  font-size: 12px;
+}
+.ob-skip a, .ob-skip-link { color: var(--dim); text-decoration: none; }
+.ob-skip a:hover, .ob-skip-link:hover { color: var(--text); }
+
+.ob-progress {
+  display: flex; gap: 8px; justify-content: center;
+  margin-bottom: 28px;
+}
+.ob-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border); transition: background 0.3s;
+}
+.ob-dot.active { background: var(--accent); }
+.ob-dot.done   { background: var(--green); }
+
+.ob-icon { font-size: 42px; text-align: center; margin-bottom: 16px; }
+
+.ob-title {
+  font-size: 22px; font-weight: 700;
+  text-align: center; margin-bottom: 14px;
+  letter-spacing: -0.3px;
+}
+
+.ob-body {
+  font-size: 14px; color: var(--dim); line-height: 1.7;
+  text-align: center; margin-bottom: 20px;
+}
+.ob-body strong { color: var(--text); }
+
+.ob-explainer {
+  background: #0d1117; border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px;
+  margin-bottom: 22px;
+}
+.ob-explainer-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  font-size: 13px; color: var(--dim); line-height: 1.6;
+}
+.ob-explainer-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+.ob-explainer a { color: var(--accent); text-decoration: none; }
+.ob-explainer a:hover { text-decoration: underline; }
+.ob-explainer code { background: #21262d; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+
+.ob-form {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 20px;
+}
+.ob-form label {
+  font-size: 12px; color: var(--dim);
+  margin-top: 4px; display: block;
+}
+.ob-form input {
+  width: 100%; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-size: 14px;
+  padding: 9px 12px; outline: none; font-family: inherit;
+  transition: border-color 0.15s;
+}
+.ob-form input:focus { border-color: var(--accent); }
+
+.ob-error {
+  background: #2d1215; border: 1px solid #5c2327;
+  border-radius: 6px; color: var(--red);
+  font-size: 13px; padding: 8px 12px;
+  margin-bottom: 14px;
+}
+
+.ob-btn {
+  width: 100%; padding: 13px;
+  background: var(--accent); border: none; border-radius: 8px;
+  color: #000; font-size: 15px; font-weight: 700;
+  cursor: pointer; transition: opacity 0.15s;
+  letter-spacing: -0.2px;
+}
+.ob-btn:hover    { opacity: 0.88; }
+.ob-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* Step 3 — panels tour */
+.ob-panels-tour {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 14px; margin: 20px 0 22px;
+}
+.ob-panel-card {
+  background: #0d1117; border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 16px; text-align: center;
+}
+.ob-panel-icon { font-size: 26px; margin-bottom: 8px; }
+.ob-panel-name { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.ob-panel-desc { font-size: 12px; color: var(--dim); line-height: 1.6; }
+
+.ob-tip {
+  background: #1a2d1a; border: 1px solid #2d5a2d;
+  border-radius: 8px; padding: 12px 16px;
+  font-size: 13px; color: #7ee787; line-height: 1.6;
+  margin-bottom: 24px;
+}
+.ob-tip strong { color: #a1efa1; }
