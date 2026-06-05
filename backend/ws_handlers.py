@@ -78,22 +78,106 @@ def extract_latest_tui_response(screen: str, anchor: Optional[str]) -> str:
     return screen
 
 
+def _smart_desc(action_type: str, data: str, path: str = "") -> dict:
+    """Generate a plain-English description when Claude doesn't provide [DESC]:."""
+    cmd = data.strip()
+
+    if action_type == "tui_input":
+        return {"headline": f"Send instruction to agent", "detail": f'"{cmd}"', "icon": "🤖"}
+
+    if action_type == "vps_write":
+        filename = path.split("/")[-1] if path else "file"
+        return {"headline": f"Write {filename}", "detail": f"Save file to {path}", "icon": "📝"}
+
+    # vps_cmd — pattern match common commands
+    c = cmd.lower()
+    pkg = cmd.split()[-1] if cmd.split() else cmd   # last word is usually the package name
+
+    if re.search(r'\bapt.get install\b|\bnpm install\b|\bpip install\b|\byarn add\b', c):
+        pkg_name = re.sub(r'^.*install\s+-?\w*\s*', '', cmd, flags=re.IGNORECASE).strip() or pkg
+        return {"headline": f"Install software", "detail": f"Install {pkg_name}", "icon": "🔧"}
+
+    if re.search(r'\bapt.get (remove|purge|uninstall)\b|\bnpm (uninstall|remove)\b', c):
+        return {"headline": "Remove software", "detail": cmd, "icon": "🗑️"}
+
+    if re.search(r'\bsystemctl\s+restart\b', c):
+        svc = re.sub(r'.*systemctl\s+restart\s+', '', cmd).strip()
+        return {"headline": f"Restart {svc}", "detail": "Apply changes by restarting the service", "icon": "⚙️"}
+
+    if re.search(r'\bsystemctl\s+start\b', c):
+        svc = re.sub(r'.*systemctl\s+start\s+', '', cmd).strip()
+        return {"headline": f"Start {svc}", "detail": None, "icon": "▶️"}
+
+    if re.search(r'\bsystemctl\s+stop\b', c):
+        svc = re.sub(r'.*systemctl\s+stop\s+', '', cmd).strip()
+        return {"headline": f"Stop {svc}", "detail": None, "icon": "⏹️"}
+
+    if re.search(r'\bmkdir\b', c):
+        folder = re.sub(r'.*mkdir\s+-?p?\s*', '', cmd).strip()
+        return {"headline": f"Create folder", "detail": folder, "icon": "📁"}
+
+    if re.search(r'\brm\b', c):
+        return {"headline": "Delete file or folder", "detail": cmd, "icon": "🗑️"}
+
+    if re.search(r'\b(cat|tail|head|less|grep)\b', c):
+        return {"headline": "Read file contents", "detail": cmd, "icon": "🔍"}
+
+    if re.search(r'\b(curl|wget)\b', c):
+        return {"headline": "Download from the web", "detail": cmd, "icon": "🌐"}
+
+    if re.search(r'\b(tmux|openclaw)\b', c):
+        return {"headline": "Manage AI agent", "detail": cmd, "icon": "🤖"}
+
+    if re.search(r'\b(git\s+(clone|pull|push|commit))\b', c):
+        return {"headline": "Git operation", "detail": cmd, "icon": "📦"}
+
+    if re.search(r'\b(cp|mv)\b', c):
+        verb = "Copy" if c.startswith("cp") else "Move"
+        return {"headline": f"{verb} file", "detail": cmd, "icon": "📋"}
+
+    # Generic fallback
+    first_word = cmd.split()[0] if cmd.split() else "Run"
+    return {"headline": f"Run command ({first_word})", "detail": cmd, "icon": "💻"}
+
+
 def parse_actions(text: str) -> tuple[str, list[dict]]:
     actions, clean = [], []
     lines = text.splitlines()
     i = 0
+    pending_desc: Optional[dict] = None   # [DESC]: from previous line
+
     while i < len(lines):
         s = lines[i].strip()
-        if s.startswith("[TUI_INPUT]:"):
+
+        if s.startswith("[DESC]:"):
+            # Parse description — format: "Headline. Optional detail sentence."
+            raw  = s[len("[DESC]:"):].strip()
+            parts = raw.split(". ", 1)
+            pending_desc = {
+                "headline": parts[0].rstrip("."),
+                "detail":   parts[1].rstrip(".") if len(parts) > 1 else None,
+            }
+            # Don't add to clean text — it's UI-only metadata
+            i += 1
+
+        elif s.startswith("[TUI_INPUT]:"):
             data = s[len("[TUI_INPUT]:"):].strip()
             if data:
-                actions.append({"id": uuid.uuid4().hex[:8], "type": "tui_input", "data": data})
+                desc = pending_desc or _smart_desc("tui_input", data)
+                pending_desc = None
+                actions.append({"id": uuid.uuid4().hex[:8], "type": "tui_input",
+                                 "data": data, "desc": desc})
             i += 1
+
         elif s.startswith("[VPS_CMD]:"):
             data = s[len("[VPS_CMD]:"):].strip()
             if data:
-                actions.append({"id": uuid.uuid4().hex[:8], "type": "vps_cmd", "data": data})
+                desc = pending_desc or _smart_desc("vps_cmd", data)
+                pending_desc = None
+                actions.append({"id": uuid.uuid4().hex[:8], "type": "vps_cmd",
+                                 "data": data, "desc": desc})
             i += 1
+
         elif s.startswith("[VPS_WRITE]:"):
             path = s[len("[VPS_WRITE]:"):].strip()
             i += 1
@@ -101,27 +185,28 @@ def parse_actions(text: str) -> tuple[str, list[dict]]:
             in_fence = False
             while i < len(lines):
                 ls = lines[i].strip()
-                if ls.startswith(("[TUI_INPUT]:", "[VPS_CMD]:", "[VPS_WRITE]:")):
+                if ls.startswith(("[TUI_INPUT]:", "[VPS_CMD]:", "[VPS_WRITE]:", "[DESC]:")):
                     break
                 if ls.startswith("```") or ls.startswith("~~~"):
                     if not in_fence:
-                        in_fence = True
-                        i += 1
-                        continue
+                        in_fence = True; i += 1; continue
                     else:
-                        i += 1
-                        break
+                        i += 1; break
                 if in_fence:
                     content_lines.append(lines[i])
                 i += 1
             if path:
+                desc = pending_desc or _smart_desc("vps_write", "", path)
+                pending_desc = None
                 actions.append({
                     "id": uuid.uuid4().hex[:8], "type": "vps_write",
                     "path": path, "data": "\n".join(content_lines).strip(),
+                    "desc": desc,
                 })
         else:
             clean.append(lines[i])
             i += 1
+
     return "\n".join(clean).strip(), actions
 
 
@@ -382,7 +467,13 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         if actions:
             a = actions[0]
             pending_actions[a["id"]] = a
-            payload = {"type": "action", "action_type": a["type"], "id": a["id"], "data": a["data"]}
+            payload = {
+                "type":        "action",
+                "action_type": a["type"],
+                "id":          a["id"],
+                "data":        a["data"],
+                "desc":        a.get("desc", {}),   # plain-English description
+            }
             if a["type"] == "vps_write":
                 payload["path"] = a.get("path", "")
             await ws.send_json(payload)

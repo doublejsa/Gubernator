@@ -353,18 +353,63 @@ function addThinkingBubble() {
 }
 function removeThinkingBubble() { if (thinkingBubble) { thinkingBubble.remove(); thinkingBubble = null; } }
 function addActionBubble(action) {
-  const el = document.createElement('div');
-  el.id = `action-${action.id}`; el.className = `action-bubble ${action.action_type}`;
-  const dis = sending ? 'disabled' : '';
+  const el  = document.createElement('div');
+  el.id     = `action-${action.id}`;
+  el.className = `action-bubble ${action.action_type}`;
+  const dis  = sending ? 'disabled' : '';
+  const desc = action.desc || {};
+
+  const icon = desc.icon || (
+    action.action_type === 'tui_input' ? '🤖' :
+    action.action_type === 'vps_write' ? '📝' : '💻'
+  );
+  const headline = desc.headline || (
+    action.action_type === 'tui_input' ? 'Send instruction to agent' :
+    action.action_type === 'vps_write' ? `Write ${(action.path||'').split('/').pop()}` :
+    'Run command'
+  );
+  const detailHtml = desc.detail
+    ? `<div class="action-detail">${esc(desc.detail)}</div>` : '';
+
+  const rawId = `raw-${action.id}`;
+  let rawHtml = '';
   if (action.action_type === 'vps_write') {
-    const lines = (action.data||'').split('\n'), lc = lines.length;
-    const preview = lines.slice(0,8).join('\n')+(lc>8?`\n… (${lc} lines total)`:'');
-    el.innerHTML = `<div class="action-header">📄 → VPS FILE WRITE</div><div class="action-file-path">${esc(action.path||'')}</div><pre class="action-file-preview">${esc(preview)}</pre><div class="action-buttons"><button class="btn-confirm" onclick="confirmAction('${action.id}')" ${dis}>Write ▶</button><button class="btn-dismiss" onclick="dismissAction('${action.id}')" ${dis}>Skip</button></div><div class="action-result" id="result-${action.id}"></div>`;
+    const lines   = (action.data||'').split('\n'), lc = lines.length;
+    const preview = lines.slice(0,6).join('\n')+(lc>6?`\n… (${lc} lines total)`:'');
+    rawHtml = `<div class="action-raw" id="${rawId}" style="display:none">
+      <div class="action-raw-path">${esc(action.path||'')}</div>
+      <pre class="action-raw-pre">${esc(preview)}</pre></div>`;
   } else {
-    const icon = action.action_type === 'tui_input' ? '🦞 → OPENCLAW TUI' : '💻 → VPS SHELL';
-    el.innerHTML = `<div class="action-header">${icon}</div><code>${esc(action.data)}</code><div class="action-buttons"><button class="btn-confirm" onclick="confirmAction('${action.id}')" ${dis}>Run ▶</button><button class="btn-dismiss" onclick="dismissAction('${action.id}')" ${dis}>Skip</button></div><div class="action-result" id="result-${action.id}"></div>`;
+    rawHtml = `<div class="action-raw" id="${rawId}" style="display:none">
+      <code class="action-raw-cmd">${esc(action.data)}</code></div>`;
   }
-  document.getElementById('chat-messages').appendChild(el); scrollChat();
+
+  el.innerHTML = `
+    <div class="action-friendly">
+      <span class="action-friendly-icon">${icon}</span>
+      <div class="action-friendly-body">
+        <div class="action-friendly-headline">${esc(headline)}</div>
+        ${detailHtml}
+        <button class="action-details-toggle" onclick="toggleActionDetails('${rawId}',this)">▾ Details</button>
+        ${rawHtml}
+      </div>
+    </div>
+    <div class="action-buttons">
+      <button class="btn-confirm" onclick="confirmAction('${action.id}')" ${dis}>Allow</button>
+      <button class="btn-dismiss" onclick="dismissAction('${action.id}')" ${dis}>Skip</button>
+    </div>
+    <div class="action-result" id="result-${action.id}"></div>`;
+
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat();
+}
+
+function toggleActionDetails(rawId, btn) {
+  const raw = document.getElementById(rawId);
+  if (!raw) return;
+  const visible = raw.style.display !== 'none';
+  raw.style.display = visible ? 'none' : '';
+  btn.textContent   = visible ? '▾ Details' : '▴ Details';
 }
 function resolveAction(id, state, label) {
   const el = document.getElementById(`action-${id}`); if (!el) return;
