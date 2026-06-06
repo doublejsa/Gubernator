@@ -66,10 +66,12 @@ function initTerminal(wrapperId, wsPath, col) {
       reconnectDelay = 2000;
       setStatus(col, 'connected', 'Connected');
       ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      if (col === 'tui') updateAgentStatus('ready', 'Agent is ready');
     };
     ws.onclose = () => {
       if (fatalError) return;   // config error — don't loop
       setStatus(col, 'error', `Disconnected — reconnecting in ${Math.round(reconnectDelay/1000)}s…`);
+      if (col === 'tui') updateAgentStatus('ready', 'Reconnecting…');
       scheduleReconnect();
     };
     ws.onerror = () => setStatus(col, 'error', 'Error');
@@ -192,6 +194,17 @@ function toggleConsole() {
   consoleVisible = !consoleVisible;
   localStorage.setItem('gov_console', consoleVisible ? 'open' : 'closed');
   applyConsoleState(true);
+}
+
+// ── Agent status pill ─────────────────────────────────────────────────────────
+const STATUS_EMOJI = { ready: '🟢', thinking: '🟡', browsing: '🔵', needs_input: '🔴' };
+
+function updateAgentStatus(code, label) {
+  const pill = document.getElementById('agent-status-pill');
+  if (!pill) return;
+  pill.dataset.status = code || 'ready';
+  const emoji = STATUS_EMOJI[code] || '🟢';
+  pill.textContent = `${emoji} ${label || 'Agent is ready'}`;
 }
 
 // ── Agent subtitle ────────────────────────────────────────────────────────────
@@ -515,11 +528,15 @@ function initChat() {
     let msg; try { msg = JSON.parse(e.data); } catch (_) { return; }
     switch (msg.type) {
       case 'status':      addBubble('status', msg.message); break;
-      case 'tui_thinking':
+      case 'tui_thinking': {
+        const st = msg.status || { code: 'thinking', label: 'Agent is thinking…' };
+        updateAgentStatus(st.code, st.label);
         if (!tuiThinkingBubble) tuiThinkingBubble = addBubble('status', '');
-        tuiThinkingBubble.textContent = `⏳ OpenClaw agent thinking… (${msg.elapsed}s)`;
+        const emoji = STATUS_EMOJI[st.code] || '🟡';
+        tuiThinkingBubble.textContent = `${emoji} ${st.label} (${msg.elapsed}s)`;
         document.getElementById('tui-cancel-btn').style.display = '';
         break;
+      }
       case 'claude_start':
         currentClaudeBubble = null;
         if (!thinkingBubble) thinkingBubble = addThinkingBubble();
@@ -554,7 +571,12 @@ function initChat() {
         if (tuiThinkingBubble) { tuiThinkingBubble.remove(); tuiThinkingBubble = null; }
         removeThinkingBubble();
         document.getElementById('tui-cancel-btn').style.display = 'none';
+        updateAgentStatus('ready', 'Agent is ready');
         addTuiOutputBubble(msg.cmd, msg.output); maybeShowTuiHint(msg.output); break;
+
+      case 'agent_status':
+        updateAgentStatus(msg.code, msg.label);
+        break;
       case 'action':       addActionBubble(msg); break;
       case 'action_done':
         dismissTuiHint(); resolveAction(msg.action_id, 'done', `✓ ${msg.label}`);

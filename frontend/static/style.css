@@ -159,6 +159,34 @@ html, body {
 .scroll-mode-btn:hover  { color: var(--accent); border-color: var(--accent); }
 .scroll-mode-btn.active { color: var(--orange); border-color: var(--orange); }
 
+/* Agent status pill */
+.agent-status-pill {
+  font-size: 11px; font-weight: 600;
+  padding: 2px 9px; border-radius: 10px;
+  white-space: nowrap; flex-shrink: 0;
+  border: 1px solid transparent;
+  transition: background 0.3s, color 0.3s, border-color 0.3s;
+}
+.agent-status-pill[data-status="ready"] {
+  background: #0f2a1a; color: #3fb950; border-color: #1a3d28;
+}
+.agent-status-pill[data-status="thinking"] {
+  background: #2a2000; color: #e3b341; border-color: #3d3000;
+  animation: status-pulse 2s ease-in-out infinite;
+}
+.agent-status-pill[data-status="browsing"] {
+  background: #0d1f33; color: #58a6ff; border-color: #1a3050;
+  animation: status-pulse 2s ease-in-out infinite;
+}
+.agent-status-pill[data-status="needs_input"] {
+  background: #2d1215; color: #f85149; border-color: #5c2327;
+  animation: status-pulse 1s ease-in-out infinite;
+}
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
 .cancel-tui-btn {
   font-size: 10px; font-family: 'JetBrains Mono', 'Menlo', monospace;
   color: var(--red); background: var(--bg);

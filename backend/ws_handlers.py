@@ -61,6 +61,40 @@ def append_tui_log(user_id: str, cmd: str, output: str):
         pass
 
 
+_AGENT_SPINNER = set("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+
+def determine_agent_status(screen: str) -> dict:
+    """Map TUI screen content to a plain-English agent status."""
+    lower = screen.lower()
+
+    # Needs input — credential prompts
+    if any(kw in lower for kw in [
+        'password', 'api key', 'api_key', 'enter your', 'provide your',
+        'passphrase', 'secret', 'token', 'authentication required',
+    ]):
+        return {"code": "needs_input", "color": "red",    "label": "Agent needs your input"}
+
+    # Browsing — browser/web activity
+    if any(kw in lower for kw in [
+        'navigating', 'loading page', 'clicking', 'browsing',
+        'fetching url', 'screenshot', 'playwright', 'chromium',
+        'http://', 'https://', 'web page',
+    ]):
+        return {"code": "browsing",    "color": "blue",   "label": "Agent is browsing the web"}
+
+    # Thinking — spinners or activity keywords
+    if (any(c in screen for c in _AGENT_SPINNER) or
+            any(kw in lower for kw in ['moseying', 'taking longer than expected', 'processing'])):
+        return {"code": "thinking",   "color": "yellow", "label": "Agent is thinking…"}
+
+    # Ready — idle signal
+    if "standing by" in lower:
+        return {"code": "ready",      "color": "green",  "label": "Agent is ready"}
+
+    # Default when connected but not actively polled
+    return {"code": "ready",          "color": "green",  "label": "Agent is ready"}
+
+
 def extract_latest_tui_response(screen: str, anchor: Optional[str]) -> str:
     screen = _INTER_SESSION_RE.sub('', screen).strip()
     if not anchor:
@@ -534,7 +568,8 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 await asyncio.sleep(1)
                 elapsed = int(asyncio.get_event_loop().time() - _start)
                 if elapsed >= _MAX_WAIT: break
-                await ws.send_json({"type": "tui_thinking", "elapsed": elapsed})
+                status = determine_agent_status(screen)
+                await ws.send_json({"type": "tui_thinking", "elapsed": elapsed, "status": status})
                 await asyncio.sleep(_POLL)
                 continue
             still_thinking = ("moseying" in lower or
@@ -544,8 +579,11 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 break
             elapsed = int(asyncio.get_event_loop().time() - _start)
             if elapsed >= _MAX_WAIT: break
-            await ws.send_json({"type": "tui_thinking", "elapsed": elapsed})
+            status = determine_agent_status(screen)
+            await ws.send_json({"type": "tui_thinking", "elapsed": elapsed, "status": status})
             await asyncio.sleep(_POLL)
+        # Polling done — signal ready
+        await ws.send_json({"type": "agent_status", **determine_agent_status(screen)})
         return screen
 
     # ── Startup ────────────────────────────────────────────────────────────────
@@ -669,6 +707,8 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                             append_tui_log(user_id_str, cmd_label, latest or "(no output)")
                             await ws.send_json({"type": "tui_output", "cmd": cmd_label,
                                                 "output": latest or "(no TUI output captured)"})
+                            await ws.send_json({"type": "agent_status", "code": "ready",
+                                                "color": "green", "label": "Agent is ready"})
                             await run_claude(f"TUI message sent: `{cmd_label}`\n\nOpenClaw response:\n{latest}")
                     else:
                         await ws.send_json({"type": "action_error", "action_id": aid,
