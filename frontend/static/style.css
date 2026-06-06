@@ -33,8 +33,10 @@ html, body {
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: flex; align-items: center;
-  padding: 0 12px; gap: 8px;
+  padding: 0 12px; gap: 6px;
+  overflow-x: auto; overflow-y: hidden;
 }
+.bottom-bar::-webkit-scrollbar { height: 0; }
 
 /* Left column: Claude chat */
 #col-chat {

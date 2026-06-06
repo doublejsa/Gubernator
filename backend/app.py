@@ -41,6 +41,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── No-cache for static assets (dev) — stops stale app.js/css/html ────────────
+@app.middleware("http")
+async def no_cache_static(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static") or path in ("/", "/app"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"]        = "no-cache"
+    return response
+
 # ── DB init ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup():
