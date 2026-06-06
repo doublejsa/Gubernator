@@ -88,9 +88,11 @@
 
     <!-- Bottom bar -->
     <div class="bottom-bar">
-      <button class="bar-btn" onclick="openVaultModal()"     title="Credential vault">🔑 Vault</button>
-      <button class="bar-btn" onclick="openVpsModal()"       title="VPS connection settings">🖥 VPS</button>
-      <button class="bar-btn" onclick="openSettingsModal()"  title="Claude API key and app settings">⚙️ Settings</button>
+      <button class="bar-btn" onclick="openActivityModal()" title="What your agent has done">📋 Activity</button>
+      <button class="bar-btn" onclick="openMemoryModal()"   title="What Gubernator remembers">🧠 Memory</button>
+      <button class="bar-btn" onclick="openVaultModal()"    title="Credential vault">🔑 Vault</button>
+      <button class="bar-btn" onclick="openVpsModal()"      title="VPS connection settings">🖥 VPS</button>
+      <button class="bar-btn" onclick="openSettingsModal()" title="Claude API key and app settings">⚙️ Settings</button>
       <button class="bar-btn bar-btn-terminals" id="terminals-toggle-btn" onclick="toggleTerminals()" title="Show/hide agent terminals">⊞ Terminals</button>
       <span class="bar-spacer"></span>
       <span class="bar-user" id="bar-user"></span>
@@ -164,6 +166,51 @@
           </div>
         </div>
         <div id="vps-list" style="margin-top:16px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Activity modal ─────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="activity-modal" style="display:none" onclick="closeModalOnBg(event,'activity-modal')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <span>📋</span>
+        <span class="modal-title">Activity</span>
+        <button class="modal-close" onclick="closeModal('activity-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="activity-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Memory modal ───────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="memory-modal" style="display:none" onclick="closeModalOnBg(event,'memory-modal')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <span>🧠</span>
+        <span class="modal-title">Memory</span>
+        <button class="modal-close" onclick="closeModal('memory-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12px;color:var(--dim);margin-bottom:14px">
+          Facts Gubernator remembers across sessions. Claude adds these automatically as it learns about your setup — you can also add or remove them here.
+        </p>
+        <button class="modal-add-btn" onclick="showMemoryForm()">+ Add fact</button>
+        <div id="memory-form-wrap" style="display:none">
+          <div class="cred-form">
+            <div style="display:flex;gap:10px">
+              <div style="flex:1"><label>Key</label><input id="mf-key" placeholder="cpanel_username"/></div>
+              <div style="flex:1"><label>Category</label><input id="mf-cat" placeholder="general"/></div>
+            </div>
+            <div><label>Value</label><input id="mf-value" placeholder="jws"/></div>
+            <div class="cred-form-actions">
+              <button class="btn-secondary" onclick="hideMemoryForm()">Cancel</button>
+              <button class="btn-primary"   onclick="saveMemory()">Save</button>
+            </div>
+          </div>
+        </div>
+        <div id="memory-list"></div>
       </div>
     </div>
   </div>

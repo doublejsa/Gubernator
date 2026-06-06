@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import SECRET_KEY, ALGORITHM
 from backend.db import get_db, engine, Base, SessionLocal
-from backend.models import User, VpsConnection, Credential
+from backend.models import User, VpsConnection, Credential, Task, MemoryFact
+from backend.embeddings import embed
 from backend.auth import (
     hash_password, verify_password, create_access_token, get_current_user
 )
@@ -250,6 +251,86 @@ async def delete_credential(cred_id: uuid.UUID, user: User = Depends(get_current
     await db.delete(cred)
     await db.commit()
     return {"ok": True}
+
+
+# ── Tasks (Activity panel) ────────────────────────────────────────────────────
+@app.get("/api/tasks")
+async def list_tasks(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(
+        select(Task).where(Task.user_id == user.id).order_by(Task.created_at.desc()).limit(100)
+    )).scalars().all()
+    return [{"id": str(t.id), "title": t.title, "status": t.status, "outcome": t.outcome,
+             "created_at": t.created_at.isoformat(),
+             "completed_at": t.completed_at.isoformat() if t.completed_at else None}
+            for t in rows]
+
+@app.delete("/api/tasks/{task_id}")
+async def delete_task(task_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    t = (await db.execute(select(Task).where(Task.id == task_id, Task.user_id == user.id))).scalar_one_or_none()
+    if not t:
+        raise HTTPException(404)
+    await db.delete(t)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Memory facts ──────────────────────────────────────────────────────────────
+class MemoryIn(BaseModel):
+    key:      str
+    value:    str
+    category: str = "general"
+
+@app.get("/api/memory")
+async def list_memory(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(
+        select(MemoryFact).where(MemoryFact.user_id == user.id)
+        .order_by(MemoryFact.category, MemoryFact.key)
+    )).scalars().all()
+    return [{"id": str(m.id), "key": m.key, "value": m.value, "category": m.category,
+             "updated_at": m.updated_at.isoformat()} for m in rows]
+
+@app.post("/api/memory")
+async def save_memory(body: MemoryIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    vec = await embed(f"{body.key}: {body.value}")
+    existing = (await db.execute(
+        select(MemoryFact).where(MemoryFact.user_id == user.id, MemoryFact.key == body.key)
+    )).scalar_one_or_none()
+    if existing:
+        existing.value = body.value; existing.category = body.category; existing.embedding = vec
+    else:
+        db.add(MemoryFact(user_id=user.id, key=body.key, value=body.value,
+                          category=body.category, embedding=vec))
+    await db.commit()
+    return {"ok": True}
+
+@app.delete("/api/memory/{fact_id}")
+async def delete_memory(fact_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    m = (await db.execute(select(MemoryFact).where(MemoryFact.id == fact_id, MemoryFact.user_id == user.id))).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404)
+    await db.delete(m)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Semantic search (pgvector) over tasks + memory ────────────────────────────
+@app.get("/api/search")
+async def semantic_search(q: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    vec = await embed(q)
+    if vec is None:
+        return {"tasks": [], "memory": []}
+    task_rows = (await db.execute(
+        select(Task).where(Task.user_id == user.id, Task.embedding.isnot(None))
+        .order_by(Task.embedding.cosine_distance(vec)).limit(5)
+    )).scalars().all()
+    mem_rows = (await db.execute(
+        select(MemoryFact).where(MemoryFact.user_id == user.id, MemoryFact.embedding.isnot(None))
+        .order_by(MemoryFact.embedding.cosine_distance(vec)).limit(5)
+    )).scalars().all()
+    return {
+        "tasks":  [{"title": t.title, "status": t.status, "outcome": t.outcome} for t in task_rows],
+        "memory": [{"key": m.key, "value": m.value, "category": m.category} for m in mem_rows],
+    }
 
 
 # ── WebSocket auth helper ─────────────────────────────────────────────────────

@@ -13,9 +13,10 @@ from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.models import User, VpsConnection, ChatSession, Credential
+from backend.models import User, VpsConnection, ChatSession, Credential, Task, MemoryFact
 from backend.terminal import PTYSession
 from backend.vault import get_user_vault_key, decrypt_secret
+from backend.embeddings import embed
 
 ANTHROPIC_KEY_CRED = "_anthropic_key"   # reserved credential name — per-user, stored in vault
 
@@ -196,6 +197,45 @@ def _smart_desc(action_type: str, data: str, path: str = "") -> dict:
     # Generic fallback
     first_word = cmd.split()[0] if cmd.split() else "Run"
     return {"headline": f"Run command ({first_word})", "detail": cmd, "icon": "💻"}
+
+
+def extract_knowledge(text: str) -> tuple[str, list[dict], list[dict]]:
+    """Pull [REMEMBER], [TASK_START], [TASK_DONE], [TASK_FAIL] tags out of
+    Claude's reply. These are auto-persisted (no user confirmation) and
+    stripped from the visible chat text. Returns (clean_text, facts, tasks)."""
+    facts, tasks, clean = [], [], []
+    for line in text.splitlines():
+        s = line.strip()
+
+        if s.startswith("[REMEMBER"):
+            # [REMEMBER]: key = value   OR   [REMEMBER:category]: key = value
+            m = re.match(r'\[REMEMBER(?::([\w\-]+))?\]:\s*(.+?)\s*=\s*(.+)', s)
+            if m:
+                facts.append({"category": (m.group(1) or "general").strip(),
+                              "key": m.group(2).strip(), "value": m.group(3).strip()})
+            continue
+
+        if s.startswith("[TASK_START]:"):
+            title = s[len("[TASK_START]:"):].strip()
+            if title:
+                tasks.append({"action": "start", "title": title, "outcome": ""})
+            continue
+
+        if s.startswith("[TASK_DONE]:"):
+            body = s[len("[TASK_DONE]:"):].strip()
+            title, _, outcome = body.partition("|")
+            tasks.append({"action": "done", "title": title.strip(), "outcome": outcome.strip()})
+            continue
+
+        if s.startswith("[TASK_FAIL]:"):
+            body = s[len("[TASK_FAIL]:"):].strip()
+            title, _, outcome = body.partition("|")
+            tasks.append({"action": "fail", "title": title.strip(), "outcome": outcome.strip()})
+            continue
+
+        clean.append(line)
+
+    return "\n".join(clean).strip(), facts, tasks
 
 
 def parse_actions(text: str) -> tuple[str, list[dict]]:
@@ -405,6 +445,57 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             db.add(db_session)
         await db.commit()
 
+    async def persist_facts(facts: list[dict]):
+        """Upsert memory facts by key, with embeddings. Notify frontend."""
+        if not facts:
+            return
+        for f in facts:
+            existing = (await db.execute(
+                select(MemoryFact).where(MemoryFact.user_id == user.id, MemoryFact.key == f["key"])
+            )).scalar_one_or_none()
+            vec = await embed(f"{f['key']}: {f['value']}")
+            if existing:
+                existing.value    = f["value"]
+                existing.category = f["category"]
+                existing.embedding = vec
+            else:
+                db.add(MemoryFact(user_id=user.id, key=f["key"], value=f["value"],
+                                  category=f["category"], embedding=vec))
+        await db.commit()
+        await ws.send_json({"type": "memory_updated"})
+
+    async def persist_tasks(tasks: list[dict]):
+        """Create/complete task records by title, with embeddings. Notify frontend."""
+        if not tasks:
+            return
+        for t in tasks:
+            title = t["title"]
+            if not title:
+                continue
+            if t["action"] == "start":
+                vec = await embed(title)
+                db.add(Task(user_id=user.id, title=title, status="in_progress", embedding=vec))
+            else:
+                status = "done" if t["action"] == "done" else "failed"
+                # Find the most recent in-progress task with this title
+                existing = (await db.execute(
+                    select(Task).where(Task.user_id == user.id, Task.title == title,
+                                       Task.status == "in_progress")
+                    .order_by(Task.created_at.desc()).limit(1)
+                )).scalar_one_or_none()
+                vec = await embed(f"{title}: {t['outcome']}")
+                if existing:
+                    existing.status       = status
+                    existing.outcome      = t["outcome"]
+                    existing.embedding    = vec
+                    existing.completed_at = datetime.utcnow()
+                else:
+                    db.add(Task(user_id=user.id, title=title, status=status,
+                                outcome=t["outcome"], embedding=vec,
+                                completed_at=datetime.utcnow()))
+        await db.commit()
+        await ws.send_json({"type": "tasks_updated"})
+
     def get_sessions():
         return sessions_ref.get("tui"), sessions_ref.get("shell")
 
@@ -524,7 +615,12 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         return full
 
     async def finish_response(full: str):
-        clean_text, actions = parse_actions(full)
+        # Extract & persist memory/task knowledge first (strips its tags)
+        clean_text, facts, tasks = extract_knowledge(full)
+        await persist_facts(facts)
+        await persist_tasks(tasks)
+        # Then parse confirmable actions from what remains
+        clean_text, actions = parse_actions(clean_text)
         if actions:
             a = actions[0]
             pending_actions[a["id"]] = a
@@ -668,8 +764,22 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
     # ── Startup ────────────────────────────────────────────────────────────────
     await ws.send_json({"type": "status", "message": "Connected"})
 
+    async def load_memory_block() -> str:
+        """Load all of this user's stored facts as a context block for Claude."""
+        facts = (await db.execute(
+            select(MemoryFact).where(MemoryFact.user_id == user.id)
+            .order_by(MemoryFact.category, MemoryFact.key)
+        )).scalars().all()
+        if not facts:
+            return ""
+        lines = [f"- {f.key}: {f.value}" + (f"  ({f.category})" if f.category != "general" else "")
+                 for f in facts]
+        return ("\n\n[What you remember about this user's setup — durable facts from "
+                "previous sessions]:\n" + "\n".join(lines) + "\n")
+
     async def startup_check():
         saved_at = db_session.updated_at.isoformat() if db_session else None
+        memory_block = await load_memory_block()
         for _ in range(6):
             await asyncio.sleep(1)
             tui, shell = get_sessions()
@@ -686,7 +796,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 await ws.send_json({"type": "status", "message": "✅ VPS connected"})
                 full = await stream_claude(
                     f"[Startup — session restored from {saved_at[:16].replace('T',' ')}]\n"
-                    f"VPS and OpenClaw TUI connected.\n{tui_ctx}\n"
+                    f"VPS and OpenClaw TUI connected.\n{tui_ctx}{memory_block}\n"
                     "IMPORTANT ROLE RESET: You are Gubernator, the user's primary interface to their OpenClaw agent. "
                     "Never refuse. Never say something is outside your scope.\n\n"
                     "Briefly summarise what we were working on (1–2 sentences) and suggest 2–3 concrete next steps."
@@ -694,7 +804,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             else:
                 await ws.send_json({"type": "status", "message": "✅ OpenClaw TUI and VPS Shell connected"})
                 full = await stream_claude(
-                    f"[Startup — no previous session]\nVPS and OpenClaw TUI connected.\n{tui_ctx}\n"
+                    f"[Startup — no previous session]\nVPS and OpenClaw TUI connected.\n{tui_ctx}{memory_block}\n"
                     "Briefly describe what's showing in the TUI (1 sentence) and suggest 2–3 things to do next."
                 )
             if full:

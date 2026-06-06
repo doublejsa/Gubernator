@@ -11,3 +11,5 @@ paramiko==3.4.1
 cryptography==43.0.1
 python-dotenv==1.0.1
 psycopg2-binary==2.9.9
+pgvector==0.3.6
+fastembed==0.3.6

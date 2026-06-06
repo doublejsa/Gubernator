@@ -600,6 +600,12 @@ function initChat() {
       case 'agent_status':
         updateAgentStatus(msg.code, msg.label);
         break;
+      case 'tasks_updated':
+        if (document.getElementById('activity-modal').style.display === 'flex') loadActivity();
+        break;
+      case 'memory_updated':
+        if (document.getElementById('memory-modal').style.display === 'flex') loadMemory();
+        break;
       case 'action':       addActionBubble(msg); break;
       case 'action_done':
         dismissTuiHint(); resolveAction(msg.action_id, 'done', `✓ ${msg.label}`);
@@ -858,6 +864,92 @@ function finishOnboarding() {
 
 function skipOnboarding() {
   document.getElementById('onboarding').style.display = 'none';
+}
+
+// ── Activity (tasks) modal ────────────────────────────────────────────────────
+const TASK_ICON = { in_progress: '⏳', done: '✓', failed: '✗' };
+
+async function openActivityModal() {
+  openModal('activity-modal');
+  loadActivity();
+}
+
+async function loadActivity() {
+  const tasks = await (await fetch('/api/tasks')).json();
+  const list  = document.getElementById('activity-list');
+  if (!tasks.length) {
+    list.innerHTML = '<p class="empty-state">No activity yet. As your agent completes tasks, they\'ll appear here.</p>';
+    return;
+  }
+  list.innerHTML = tasks.map(t => {
+    const icon = TASK_ICON[t.status] || '•';
+    const when = new Date(t.completed_at || t.created_at).toLocaleString();
+    return `<div class="task-row task-${t.status}">
+      <span class="task-icon">${icon}</span>
+      <div class="task-body">
+        <div class="task-title">${esc(t.title)}</div>
+        ${t.outcome ? `<div class="task-outcome">${esc(t.outcome)}</div>` : ''}
+        <div class="task-when">${when}</div>
+      </div>
+      <button class="cred-btn danger" onclick="deleteTask('${t.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function deleteTask(id) {
+  await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+  loadActivity();
+}
+
+// ── Memory modal ──────────────────────────────────────────────────────────────
+async function openMemoryModal() {
+  openModal('memory-modal');
+  loadMemory();
+}
+
+async function loadMemory() {
+  const facts = await (await fetch('/api/memory')).json();
+  const list  = document.getElementById('memory-list');
+  if (!facts.length) {
+    list.innerHTML = '<p class="empty-state">Nothing remembered yet. Claude will add facts as it learns about your setup.</p>';
+    return;
+  }
+  list.innerHTML = `<table class="cred-table">
+    <thead><tr><th>Key</th><th>Value</th><th>Category</th><th></th></tr></thead>
+    <tbody>${facts.map(m => `
+      <tr>
+        <td><span class="cred-name">${esc(m.key)}</span></td>
+        <td>${esc(m.value)}</td>
+        <td><span class="cred-user">${esc(m.category)}</span></td>
+        <td><button class="cred-btn danger" onclick="deleteMemory('${m.id}')">Delete</button></td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+
+function showMemoryForm() {
+  document.getElementById('mf-key').value = '';
+  document.getElementById('mf-value').value = '';
+  document.getElementById('mf-cat').value = '';
+  document.getElementById('memory-form-wrap').style.display = '';
+}
+function hideMemoryForm() { document.getElementById('memory-form-wrap').style.display = 'none'; }
+
+async function saveMemory() {
+  const key   = document.getElementById('mf-key').value.trim();
+  const value = document.getElementById('mf-value').value.trim();
+  const cat   = document.getElementById('mf-cat').value.trim() || 'general';
+  if (!key || !value) { alert('Key and value are required'); return; }
+  const res = await fetch('/api/memory', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, value, category: cat }),
+  });
+  if (res.ok) { hideMemoryForm(); loadMemory(); }
+  else alert('Save failed');
+}
+
+async function deleteMemory(id) {
+  await fetch(`/api/memory/${id}`, { method: 'DELETE' });
+  loadMemory();
 }
 
 // ── Settings modal ────────────────────────────────────────────────────────────
