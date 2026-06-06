@@ -311,6 +311,27 @@ function cancelClaude() {
     chatWs.send(JSON.stringify({ type: 'cancel_claude' }));
   document.getElementById('claude-cancel-btn').style.display = 'none';
 }
+
+function checkAgent() {
+  if (sending || !chatWs || chatWs.readyState !== WebSocket.OPEN) return;
+  // Remove any lingering awaiting prompt bubbles
+  document.querySelectorAll('.check-agent-prompt').forEach(el => el.remove());
+  sending = true;
+  document.getElementById('chat-send').disabled = true;
+  thinkingBubble = addThinkingBubble();
+  chatWs.send(JSON.stringify({ type: 'check_agent' }));
+}
+
+function addCheckAgentPrompt() {
+  // Don't stack duplicates
+  document.querySelectorAll('.check-agent-prompt').forEach(el => el.remove());
+  const el = document.createElement('div');
+  el.className = 'bubble check-agent-prompt';
+  el.innerHTML = `⏳ Claude is waiting on the agent to finish.<br><br>
+    <button class="retry-btn" onclick="checkAgent()">🔄 Check agent response</button>`;
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat();
+}
 function enterTuiScrollMode() {
   if (!tuiWs || tuiWs.readyState !== WebSocket.OPEN) return;
   tuiWs.send(JSON.stringify({ type: 'input', data: '\x02[' }));
@@ -563,6 +584,8 @@ function initChat() {
         setActionButtonsDisabled(false);
         document.getElementById('chat-send').disabled = false;
         document.getElementById('chat-input').focus();
+        // Claude said it's waiting on the agent — surface a manual check button
+        if (msg.awaiting_agent) addCheckAgentPrompt();
         break;
       case 'stats':  updateClaudeStats(msg); break;
       case 'vps_output':

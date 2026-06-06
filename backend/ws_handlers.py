@@ -31,6 +31,18 @@ PROMPT_GUIDE_PATH = Path(__file__).parent.parent / "prompt_guide.md"
 _FALLBACK_PROMPT  = "You are Gubernator, an AI assistant helping manage AI agents on a remote VPS."
 _INTER_SESSION_RE = re.compile(r'\[Inter-session message\].*?(?=\n\n|\Z)', re.DOTALL)
 
+# Claude's reply language that means "I'm waiting on the agent to finish"
+_AWAITING_RE = re.compile(
+    r'waiting for (a |the |it |its )?(response|reply|result|agent|it to|the agent)'
+    r'|still (processing|working|running|rendering)'
+    r'|let me wait|i\'?ll wait|wait for it to'
+    r'|screen is (still )?rendering'
+    r'|once it(\'?s| has)? (done|finished|complete)'
+    r'|check(ing)? back'
+    r'|when it (finishes|completes|is done)',
+    re.IGNORECASE,
+)
+
 TUI_LOG_DIR = Path.home() / "gubernator_logs"
 
 
@@ -63,35 +75,47 @@ def append_tui_log(user_id: str, cmd: str, output: str):
 
 _AGENT_SPINNER = set("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
+# Words that mean OpenClaw is actively working (this TUI version says "streaming")
+_BUSY_KEYWORDS = (
+    'streaming', 'moseying', 'taking longer than expected',
+    'processing', 'esc to interrupt', 'thinking',
+)
+
+def is_agent_busy(screen: str) -> bool:
+    """True if the agent appears to be actively working."""
+    lower = screen.lower()
+    return (any(c in screen for c in _AGENT_SPINNER) or
+            any(kw in lower for kw in _BUSY_KEYWORDS))
+
 def determine_agent_status(screen: str) -> dict:
     """Map TUI screen content to a plain-English agent status."""
     lower = screen.lower()
+    busy  = is_agent_busy(screen)
 
-    # Needs input — credential prompts
-    if any(kw in lower for kw in [
-        'password', 'api key', 'api_key', 'enter your', 'provide your',
-        'passphrase', 'secret', 'token', 'authentication required',
+    # Needs input — credential prompts (only when NOT actively streaming;
+    # avoids false reds when the agent merely mentions 'password' mid-thought)
+    if not busy and any(kw in lower for kw in [
+        'enter your', 'provide your', 'paste your', 'type your',
+        'authentication required', 'enter the password', 'enter password',
     ]):
         return {"code": "needs_input", "color": "red",    "label": "Agent needs your input"}
 
-    # Browsing — browser/web activity
+    # Browsing — browser/web activity (more specific than generic 'thinking')
     if any(kw in lower for kw in [
-        'navigating', 'loading page', 'clicking', 'browsing',
-        'fetching url', 'screenshot', 'playwright', 'chromium',
-        'http://', 'https://', 'web page',
+        'navigating', 'loading page', 'clicking', 'browsing the',
+        'fetching url', 'taking screenshot', 'playwright', 'chromium',
     ]):
         return {"code": "browsing",    "color": "blue",   "label": "Agent is browsing the web"}
 
-    # Thinking — spinners or activity keywords
-    if (any(c in screen for c in _AGENT_SPINNER) or
-            any(kw in lower for kw in ['moseying', 'taking longer than expected', 'processing'])):
+    # Thinking — busy signals (spinner, 'streaming', etc.)
+    if busy:
         return {"code": "thinking",   "color": "yellow", "label": "Agent is thinking…"}
 
-    # Ready — idle signal
-    if "standing by" in lower:
+    # Ready — explicit idle signals
+    if "idle" in lower or "standing by" in lower:
         return {"code": "ready",      "color": "green",  "label": "Agent is ready"}
 
-    # Default when connected but not actively polled
+    # Default when connected but quiet
     return {"code": "ready",          "color": "green",  "label": "Agent is ready"}
 
 
@@ -514,7 +538,10 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             if a["type"] == "vps_write":
                 payload["path"] = a.get("path", "")
             await ws.send_json(payload)
-        await ws.send_json({"type": "done", "clean_text": clean_text})
+        # Detect when Claude's reply says it's waiting on the agent — surface a
+        # 'Check agent response' button so the user isn't left at a dead end.
+        awaiting = bool(not actions and _AWAITING_RE.search(clean_text))
+        await ws.send_json({"type": "done", "clean_text": clean_text, "awaiting_agent": awaiting})
 
     async def run_claude(content: str) -> None:
         async def _tui_monitor():
@@ -569,32 +596,43 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         return screen
 
     async def _poll_tui_loop(_SPINNER, _MAX_WAIT, _POLL, _start) -> str:
-        screen = ""
+        screen        = ""
+        settled_count = 0   # consecutive quiet reads before we declare 'done'
         while True:
             screen = await run_vps_cmd(f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -120 2>/dev/null")
             lower  = screen.lower()
-            if "standing by" in lower:
-                break
+
+            # Pagination — advance and keep polling
             if "send another message to continue" in lower:
                 tui, _ = get_sessions()
                 if tui and tui.connected:
                     tui.write(b'\r')
+                settled_count = 0
                 await asyncio.sleep(1)
                 elapsed = int(asyncio.get_event_loop().time() - _start)
                 if elapsed >= _MAX_WAIT: break
-                status = determine_agent_status(screen)
-                await ws.send_json({"type": "tui_thinking", "elapsed": elapsed, "status": status})
+                await ws.send_json({"type": "tui_thinking", "elapsed": elapsed,
+                                    "status": determine_agent_status(screen)})
                 await asyncio.sleep(_POLL)
                 continue
-            still_thinking = ("moseying" in lower or
-                              any(c in screen for c in _SPINNER) or
-                              "taking longer than expected" in lower)
-            if not still_thinking:
-                break
+
+            busy = is_agent_busy(screen)
+            idle = ("idle" in lower or "standing by" in lower)
+
+            if busy:
+                settled_count = 0
+            else:
+                # Not visibly busy — but the spinner animates, so one quiet read
+                # isn't proof. Require TWO consecutive quiet reads (or an explicit
+                # idle signal) before declaring the agent done.
+                settled_count += 1
+                if idle or settled_count >= 2:
+                    break
+
             elapsed = int(asyncio.get_event_loop().time() - _start)
             if elapsed >= _MAX_WAIT: break
-            status = determine_agent_status(screen)
-            await ws.send_json({"type": "tui_thinking", "elapsed": elapsed, "status": status})
+            await ws.send_json({"type": "tui_thinking", "elapsed": elapsed,
+                                "status": determine_agent_status(screen)})
             await asyncio.sleep(_POLL)
         return screen
 
@@ -824,6 +862,35 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
 
             elif t == "dismiss":
                 pending_actions.pop(msg.get("action_id"), None)
+
+            elif t == "check_agent":
+                # Manual re-check — capture the live agent screen and feed it to Claude.
+                # If the agent is still busy, poll until it settles first.
+                tui, shell = get_sessions()
+                if not (shell and shell.connected):
+                    await ws.send_json({"type": "error", "message": "VPS not connected — can't check the agent."})
+                    await ws.send_json({"type": "done"})
+                    continue
+                first = await run_vps_cmd(
+                    f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -120 2>/dev/null")
+                if is_agent_busy(first):
+                    # Still working — run the robust poll loop to wait it out
+                    status_poll_lock["active"] = True
+                    try:
+                        _start = asyncio.get_event_loop().time()
+                        screen = await _poll_tui_loop(_AGENT_SPINNER, 240, 3, _start)
+                    finally:
+                        status_poll_lock["active"] = False
+                    await ws.send_json({"type": "agent_status", **determine_agent_status(screen)})
+                else:
+                    screen = first
+                clean = _INTER_SESSION_RE.sub('', screen).strip()
+                await run_claude(
+                    f"[Manual check — current agent screen]:\n{clean}\n\n"
+                    "The user clicked 'Check agent response'. Read the screen above and tell them "
+                    "what the agent has actually produced. If it has finished, summarise the result "
+                    "concretely and suggest the next step. If it is genuinely still working, say so plainly."
+                )
 
             elif t == "user_message":
                 content = msg.get("content", "").strip()

@@ -247,6 +247,15 @@ html, body {
 .retry-btn:hover    { background: #9a6800; }
 .retry-btn:disabled { opacity: 0.5; cursor: default; }
 
+.bubble.check-agent-prompt {
+  align-self: flex-start; background: #0d2030; border: 1px solid #1a4060;
+  color: #79c0ff; line-height: 1.6;
+}
+.bubble.check-agent-prompt .retry-btn {
+  background: #1a4060; border-color: var(--accent); color: #cce4ff;
+}
+.bubble.check-agent-prompt .retry-btn:hover { background: #235080; }
+
 /* Collapsible code blocks */
 .code-block { background: #0d1117; border: 1px solid var(--border); border-radius: 4px; margin: 6px 0; overflow: hidden; }
 .code-block-hdr { display: flex; align-items: center; justify-content: space-between; padding: 3px 10px; background: #161b22; border-bottom: 1px solid var(--border); }
