@@ -365,6 +365,9 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
     pending_actions: dict[str, dict] = {}
     session_tokens = session_cost = 0.0
     user_id_str    = str(user.id)
+    # Coordination flag — true while poll_tui_until_done() is running so the
+    # always-on background poller doesn't double-capture/fight it.
+    status_poll_lock = {"active": False}
 
     async def save_history():
         nonlocal db_session
@@ -555,7 +558,18 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         _POLL     = 3
         _start    = asyncio.get_event_loop().time()
         screen    = ""
-        await asyncio.sleep(2)
+        status_poll_lock["active"] = True   # pause the background poller
+        try:
+            await asyncio.sleep(2)
+            screen = await _poll_tui_loop(_SPINNER, _MAX_WAIT, _POLL, _start)
+        finally:
+            status_poll_lock["active"] = False
+        # Polling done — signal ready
+        await ws.send_json({"type": "agent_status", **determine_agent_status(screen)})
+        return screen
+
+    async def _poll_tui_loop(_SPINNER, _MAX_WAIT, _POLL, _start) -> str:
+        screen = ""
         while True:
             screen = await run_vps_cmd(f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -120 2>/dev/null")
             lower  = screen.lower()
@@ -582,9 +596,36 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             status = determine_agent_status(screen)
             await ws.send_json({"type": "tui_thinking", "elapsed": elapsed, "status": status})
             await asyncio.sleep(_POLL)
-        # Polling done — signal ready
-        await ws.send_json({"type": "agent_status", **determine_agent_status(screen)})
         return screen
+
+    # ── Background status poller — always-on, reflects true agent state ──────────
+    async def background_status_poller():
+        """Continuously reflect the agent's real state in the status pill —
+        independent of whether a [TUI_INPUT] action is in flight. Catches
+        autonomous work, direct terminal input, and Telegram-triggered tasks."""
+        last_code = None
+        while True:
+            try:
+                if status_poll_lock["active"]:
+                    await asyncio.sleep(2)   # active poll owns the status right now
+                    continue
+                tui, shell = get_sessions()
+                if not (tui and tui.connected and shell and shell.connected):
+                    await asyncio.sleep(5)
+                    continue
+                screen = await run_vps_cmd(
+                    f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -30 2>/dev/null")
+                if "(VPS shell not connected)" in screen:
+                    await asyncio.sleep(5)
+                    continue
+                status = determine_agent_status(screen)
+                if status["code"] != last_code:
+                    last_code = status["code"]
+                    await ws.send_json({"type": "agent_status", **status})
+                # Poll faster while busy, back off when idle to save resources
+                await asyncio.sleep(8 if status["code"] == "ready" else 3)
+            except Exception:
+                await asyncio.sleep(5)
 
     # ── Startup ────────────────────────────────────────────────────────────────
     await ws.send_json({"type": "status", "message": "Connected"})
@@ -632,6 +673,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 await finish_response(full)
 
     asyncio.create_task(startup_check())
+    _bg_poller = asyncio.create_task(background_status_poller())
 
     # ── Main loop ──────────────────────────────────────────────────────────────
     _AUTO_CONTINUE_RE = re.compile(r'send another message to continue', re.IGNORECASE)
@@ -804,4 +846,5 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 await run_claude(content)
 
     finally:
+        _bg_poller.cancel()
         await save_history()
