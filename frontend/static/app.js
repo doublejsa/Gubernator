@@ -914,11 +914,93 @@ async function deleteTask(id) {
   loadActivity();
 }
 
-// ── Skills marketplace modal ──────────────────────────────────────────────────
+// ── Skills modal ──────────────────────────────────────────────────────────────
 async function openSkillsModal() {
   openModal('skills-modal');
+  switchSkillsTab('marketplace');
   document.getElementById('skills-search-input').value = '';
   runSkillsSearch();   // default: show popular/featured (empty query)
+}
+
+function switchSkillsTab(tab) {
+  const isMkt = tab === 'marketplace';
+  document.getElementById('skills-tab-marketplace').style.display = isMkt ? '' : 'none';
+  document.getElementById('skills-tab-installed').style.display   = isMkt ? 'none' : '';
+  document.getElementById('skills-tab-btn-marketplace').classList.toggle('active', isMkt);
+  document.getElementById('skills-tab-btn-installed').classList.toggle('active', !isMkt);
+  if (!isMkt) loadInstalledSkills();
+}
+
+const SKILL_STATE = {
+  ready:       { badge: '✓ Ready',       cls: 'ready' },
+  installable: { badge: 'Needs setup',   cls: 'installable' },
+  unavailable: { badge: 'Unavailable',   cls: 'unavailable' },
+};
+
+async function loadInstalledSkills() {
+  const list = document.getElementById('skills-installed-list');
+  list.innerHTML = '<p class="empty-state">Loading skills…</p>';
+  try {
+    const skills = await (await fetch('/api/skills/installed')).json();
+    if (!skills.length) {
+      list.innerHTML = '<p class="empty-state">No skills found — is the VPS connected?</p>';
+      return;
+    }
+    list.innerHTML = skills.map(s => {
+      const st = SKILL_STATE[s.state] || SKILL_STATE.unavailable;
+      let action = `<span class="skill-state-badge ${st.cls}">${st.badge}</span>`;
+      if (s.state === 'installable') {
+        action = `<button class="btn-primary skill-install-btn" onclick="setupSkill('${esc(s.name)}','${esc((s.needs||[]).join(', '))}')">Set up</button>`;
+      }
+      const need = s.state === 'installable' && s.needs.length
+        ? `<div class="skill-need">Needs: ${esc(s.needs.join(', '))}</div>`
+        : (s.state === 'unavailable' && s.needs.length
+            ? `<div class="skill-need">${esc(s.needs.join(', '))}</div>` : '');
+      return `<div class="skill-card skill-${st.cls}">
+        <div class="skill-card-icon">${s.emoji || '🧩'}</div>
+        <div class="skill-card-body">
+          <div class="skill-card-name">${esc(s.name)}</div>
+          <div class="skill-card-summary">${esc(s.description || '')}</div>
+          ${need}
+        </div>
+        <div class="skill-card-action">${action}</div>
+      </div>`;
+    }).join('');
+  } catch (_) {
+    list.innerHTML = '<p class="empty-state">Couldn\'t load skills — check the VPS connection.</p>';
+  }
+}
+
+function setupSkill(name, needs) {
+  // Hand off to Claude — it knows how to install apt packages / set env vars intelligently
+  closeModal('skills-modal');
+  const msg = `Set up the "${name}" skill on the VPS. It needs: ${needs}. `
+            + `Install the missing requirement(s) so the skill becomes available, then confirm it's ready.`;
+  if (!chatWs || chatWs.readyState !== WebSocket.OPEN || sending) {
+    alert('Claude is busy or disconnected — try again in a moment.');
+    return;
+  }
+  lastUserMessage = msg;
+  addBubble('you', msg);
+  sending = true;
+  document.getElementById('chat-send').disabled = true;
+  chatWs.send(JSON.stringify({ type: 'user_message', content: msg }));
+}
+
+async function restartAgent(btn) {
+  btn.disabled = true; btn.textContent = '🔄 Restarting…';
+  try {
+    const data = await (await fetch('/api/skills/restart-agent', { method: 'POST' })).json();
+    if (data.ok) {
+      btn.textContent = '✓ Agent restarted';
+      setTimeout(() => { document.getElementById('skills-restart-banner').style.display = 'none'; }, 2500);
+    } else {
+      btn.disabled = false; btn.textContent = '🔄 Retry restart';
+      alert('Restart may have failed:\n\n' + (data.output || '').slice(-400));
+    }
+  } catch (_) {
+    btn.disabled = false; btn.textContent = '🔄 Retry restart';
+  }
 }
 
 async function runSkillsSearch() {
@@ -961,6 +1043,11 @@ async function installSkill(slug, btn) {
     const action = btn.closest('.skill-card-action');
     if (data.ok) {
       action.innerHTML = '<span class="skill-installed">✓ Installed</span>';
+      // Prompt to restart the agent so the new skill activates
+      const banner = document.getElementById('skills-restart-banner');
+      banner.style.display = 'flex';
+      const rb = banner.querySelector('button');
+      rb.disabled = false; rb.textContent = '🔄 Restart agent';
     } else {
       btn.disabled = false; btn.textContent = 'Retry';
       alert('Install may have failed:\n\n' + (data.output || 'unknown error').slice(-400));

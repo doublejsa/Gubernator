@@ -404,6 +404,50 @@ async def skills_install(body: SkillInstallIn, user: User = Depends(get_current_
     return {"ok": ok, "output": out[-2500:]}
 
 
+@app.get("/api/skills/installed")
+async def skills_installed(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """List all skills on the VPS, bucketed into ready / installable / unavailable."""
+    out = await _vps_exec(user, db, "openclaw skills list --json 2>/dev/null")
+    try:    skills = _json.loads(out).get("skills", [])
+    except Exception: skills = []
+    result = []
+    for s in skills:
+        missing = s.get("missing") or {}
+        os_req  = missing.get("os") or []
+        bins    = (missing.get("bins") or []) + (missing.get("anyBins") or [])
+        env     = missing.get("env") or []
+        cfg     = missing.get("config") or []
+        if s.get("eligible"):
+            state, needs = "ready", []
+        elif os_req:
+            state, needs = "unavailable", [f"requires {', '.join(os_req)}"]
+        elif bins or env or cfg:
+            state, needs = "installable", bins + [f"env:{e}" for e in env] + [f"config:{c}" for c in cfg]
+        else:
+            state, needs = "unavailable", []
+        result.append({
+            "name": s.get("name", ""), "emoji": s.get("emoji", "🧩"),
+            "description": s.get("description", ""), "source": s.get("source", ""),
+            "state": state, "needs": needs,
+        })
+    order = {"ready": 0, "installable": 1, "unavailable": 2}
+    result.sort(key=lambda x: (order.get(x["state"], 3), x["name"]))
+    return result
+
+
+@app.post("/api/skills/restart-agent")
+async def restart_agent(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Restart the OpenClaw gateway so newly-installed skills are activated."""
+    out = await _vps_exec(
+        user, db,
+        "openclaw gateway stop 2>&1; sleep 2; openclaw gateway start 2>&1",
+        timeout=120,
+    )
+    low = out.lower()
+    ok  = "error" not in low and "failed" not in low
+    return {"ok": ok, "output": out[-1500:]}
+
+
 # ── WebSocket auth helper ─────────────────────────────────────────────────────
 async def ws_get_user(token: str, db: AsyncSession) -> User:
     """Authenticate a WebSocket connection via ?token= query param."""

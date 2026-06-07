@@ -200,14 +200,34 @@
         <button class="modal-close" onclick="closeModal('skills-modal')">×</button>
       </div>
       <div class="modal-body">
-        <p style="font-size:12px;color:var(--dim);margin-bottom:12px">
-          Browse the ClawHub catalog and give your agent new capabilities. Already-installed skills are marked.
-        </p>
-        <div class="skills-search-row">
-          <input id="skills-search-input" class="skills-search-input" placeholder="Search skills (e.g. email, calendar, scrape)…" autocomplete="off"/>
-          <button class="btn-primary" onclick="runSkillsSearch()">Search</button>
+        <div class="skills-tabs">
+          <button class="skills-tab active" id="skills-tab-btn-marketplace" onclick="switchSkillsTab('marketplace')">🛒 Marketplace</button>
+          <button class="skills-tab" id="skills-tab-btn-installed" onclick="switchSkillsTab('installed')">📦 Installed</button>
         </div>
-        <div id="skills-results"></div>
+
+        <!-- Marketplace tab -->
+        <div id="skills-tab-marketplace">
+          <div id="skills-restart-banner" class="skills-restart-banner" style="display:none">
+            <span>✓ Skill installed. Restart the agent to activate it.</span>
+            <button class="btn-primary" onclick="restartAgent(this)">🔄 Restart agent</button>
+          </div>
+          <p style="font-size:12px;color:var(--dim);margin-bottom:12px">
+            Browse the ClawHub catalog and give your agent new capabilities. Already-installed skills are marked.
+          </p>
+          <div class="skills-search-row">
+            <input id="skills-search-input" class="skills-search-input" placeholder="Search skills (e.g. email, calendar, scrape)…" autocomplete="off"/>
+            <button class="btn-primary" onclick="runSkillsSearch()">Search</button>
+          </div>
+          <div id="skills-results"></div>
+        </div>
+
+        <!-- Installed tab -->
+        <div id="skills-tab-installed" style="display:none">
+          <p style="font-size:12px;color:var(--dim);margin-bottom:12px">
+            Every skill on your VPS. <strong>Ready</strong> = working now · <strong>Needs setup</strong> = missing a requirement Claude can install · <strong>Unavailable</strong> = not supported on this server.
+          </p>
+          <div id="skills-installed-list"></div>
+        </div>
       </div>
     </div>
   </div>
