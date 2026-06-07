@@ -914,6 +914,63 @@ async function deleteTask(id) {
   loadActivity();
 }
 
+// ── Skills marketplace modal ──────────────────────────────────────────────────
+async function openSkillsModal() {
+  openModal('skills-modal');
+  document.getElementById('skills-search-input').value = '';
+  runSkillsSearch();   // default: show popular/featured (empty query)
+}
+
+async function runSkillsSearch() {
+  const q    = document.getElementById('skills-search-input').value.trim();
+  const list = document.getElementById('skills-results');
+  list.innerHTML = '<p class="empty-state">Searching ClawHub…</p>';
+  try {
+    const results = await (await fetch('/api/skills/search?q=' + encodeURIComponent(q))).json();
+    if (!results.length) {
+      list.innerHTML = '<p class="empty-state">No skills found. Try a different search.</p>';
+      return;
+    }
+    list.innerHTML = results.map(s => `
+      <div class="skill-card" id="skill-${esc(s.slug)}">
+        <div class="skill-card-body">
+          <div class="skill-card-name">${esc(s.name)}
+            ${s.owner ? `<span class="skill-card-owner">by ${esc(s.owner)}</span>` : ''}
+          </div>
+          <div class="skill-card-summary">${esc(s.summary || '')}</div>
+        </div>
+        <div class="skill-card-action">
+          ${s.installed
+            ? '<span class="skill-installed">✓ Installed</span>'
+            : `<button class="btn-primary skill-install-btn" onclick="installSkill('${esc(s.slug)}', this)">Install</button>`}
+        </div>
+      </div>`).join('');
+  } catch (_) {
+    list.innerHTML = '<p class="empty-state">Couldn\'t reach the catalog — is the VPS connected?</p>';
+  }
+}
+
+async function installSkill(slug, btn) {
+  btn.disabled = true; btn.textContent = 'Installing…';
+  try {
+    const res = await fetch('/api/skills/install', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug }),
+    });
+    const data = await res.json();
+    const action = btn.closest('.skill-card-action');
+    if (data.ok) {
+      action.innerHTML = '<span class="skill-installed">✓ Installed</span>';
+    } else {
+      btn.disabled = false; btn.textContent = 'Retry';
+      alert('Install may have failed:\n\n' + (data.output || 'unknown error').slice(-400));
+    }
+  } catch (_) {
+    btn.disabled = false; btn.textContent = 'Retry';
+    alert('Install request failed — check the VPS connection.');
+  }
+}
+
 // ── Memory modal ──────────────────────────────────────────────────────────────
 async function openMemoryModal() {
   openModal('memory-modal');
@@ -1009,6 +1066,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('tui-direct-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); sendDirectToTui(); }
+  });
+  document.getElementById('skills-search-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); runSkillsSearch(); }
   });
 
   // Check setup state — show onboarding wizard for new users

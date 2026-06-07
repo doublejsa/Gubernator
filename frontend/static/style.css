@@ -406,6 +406,27 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
 .modal-add-btn:hover { opacity: 0.85; }
 .empty-state { color: var(--dim); font-size: 13px; text-align: center; padding: 32px 0; }
 
+/* Skills marketplace */
+.skills-search-row { display: flex; gap: 8px; margin-bottom: 16px; }
+.skills-search-input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 13px;
+  padding: 8px 11px; outline: none; font-family: inherit;
+}
+.skills-search-input:focus { border-color: var(--accent); }
+.skill-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 8px; background: #0d1117;
+}
+.skill-card-body { flex: 1; min-width: 0; }
+.skill-card-name { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+.skill-card-owner { font-size: 11px; color: var(--dim); font-weight: 400; margin-left: 6px; }
+.skill-card-summary { font-size: 12px; color: var(--dim); line-height: 1.5; }
+.skill-card-action { flex-shrink: 0; }
+.skill-install-btn { padding: 5px 16px; font-size: 12px; }
+.skill-installed { font-size: 12px; color: var(--green); font-weight: 600; white-space: nowrap; }
+
 /* Activity / task rows */
 .task-row {
   display: flex; gap: 12px; align-items: flex-start;

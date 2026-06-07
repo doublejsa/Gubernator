@@ -3,8 +3,9 @@ Gubernator — AI Agent Control Panel
 FastAPI backend: auth, credential vault, VPS/TUI/Claude WebSocket sessions.
 """
 from __future__ import annotations
-import asyncio, os, uuid
+import asyncio, os, uuid, json as _json, shlex
 from pathlib import Path
+import paramiko
 from fastapi import FastAPI, Depends, HTTPException, Response, WebSocket, WebSocketDisconnect, status, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
@@ -341,6 +342,66 @@ async def semantic_search(q: str, user: User = Depends(get_current_user), db: As
         "tasks":  [{"title": t.title, "status": t.status, "outcome": t.outcome} for t in task_rows],
         "memory": [{"key": m.key, "value": m.value, "category": m.category} for m in mem_rows],
     }
+
+
+# ── Skills marketplace (ClawHub via openclaw CLI) ─────────────────────────────
+async def _vps_exec(user: User, db: AsyncSession, cmd: str, timeout: int = 60) -> str:
+    """Run a command on the user's VPS over a short-lived SSH exec connection.
+    Independent of the chat WebSocket, so REST endpoints can use it directly."""
+    vps = (await db.execute(
+        select(VpsConnection).where(VpsConnection.user_id == user.id)
+        .order_by(VpsConnection.created_at)
+    )).scalars().first()
+    if not vps:
+        raise HTTPException(400, "No VPS configured")
+    vault_key = get_user_vault_key(user)
+    password  = decrypt_secret(vault_key, vps.password_enc) if vps.password_enc else ""
+
+    def _run():
+        c = paramiko.SSHClient()
+        c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        c.connect(vps.host, port=vps.port, username=vps.username, password=password, timeout=15)
+        try:
+            _, o, e = c.exec_command(cmd, timeout=timeout)
+            o.channel.recv_exit_status()
+            return o.read().decode() + e.read().decode()
+        finally:
+            c.close()
+    return await asyncio.get_event_loop().run_in_executor(None, _run)
+
+
+@app.get("/api/skills/search")
+async def skills_search(q: str = "", user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Search the ClawHub catalog and mark which results are already installed."""
+    query = shlex.quote(q) if q else ""
+    cmd = (f"openclaw skills search {query} --json --limit 30 2>/dev/null; "
+           f"echo '@@@SPLIT@@@'; "
+           f"openclaw skills list --json 2>/dev/null")
+    out = await _vps_exec(user, db, cmd)
+    search_part, _, list_part = out.partition("@@@SPLIT@@@")
+    try:    results = _json.loads(search_part).get("results", [])
+    except Exception: results = []
+    try:    installed = {s.get("name") for s in _json.loads(list_part).get("skills", [])}
+    except Exception: installed = set()
+    return [{
+        "slug":      r.get("slug", ""),
+        "name":      r.get("displayName") or r.get("slug", ""),
+        "summary":   r.get("summary", ""),
+        "owner":     (r.get("owner") or {}).get("displayName", "") or r.get("ownerHandle", ""),
+        "installed": r.get("slug", "") in installed,
+    } for r in results if r.get("slug")]
+
+
+class SkillInstallIn(BaseModel):
+    slug: str
+
+@app.post("/api/skills/install")
+async def skills_install(body: SkillInstallIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Install a skill from ClawHub into the active workspace."""
+    out = await _vps_exec(user, db, f"openclaw skills install {shlex.quote(body.slug)} 2>&1", timeout=180)
+    low = out.lower()
+    ok  = ("installed" in low or "success" in low or "added" in low) and "error" not in low
+    return {"ok": ok, "output": out[-2500:]}
 
 
 # ── WebSocket auth helper ─────────────────────────────────────────────────────
