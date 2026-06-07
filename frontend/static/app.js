@@ -142,20 +142,17 @@ function reflowTerminals() {
 let terminalsVisible = localStorage.getItem('gov_terminals') === 'open';  // hidden by default
 
 function applyTerminalsState(animate) {
-  const right  = document.getElementById('right-panel');
-  const chat   = document.getElementById('col-chat');
-  const vdiv   = document.getElementById('v-divider');
-  const btn    = document.getElementById('terminals-toggle-btn');
+  const terminals = document.getElementById('right-panel');
+  const feed      = document.getElementById('whats-happening');
+  const btn       = document.getElementById('terminals-toggle-btn');
 
   if (terminalsVisible) {
-    right.classList.remove('terminals-hidden');
-    chat.classList.remove('terminals-hidden');
-    vdiv.classList.remove('terminals-hidden');
+    terminals.style.display = '';
+    feed.style.display      = 'none';
     btn.classList.add('active');
   } else {
-    right.classList.add('terminals-hidden');
-    chat.classList.add('terminals-hidden');
-    vdiv.classList.add('terminals-hidden');
+    terminals.style.display = 'none';
+    feed.style.display      = '';
     btn.classList.remove('active');
   }
   // Reflow after CSS transition so xterm sizes correctly
@@ -205,6 +202,55 @@ function runIdea(i) {
   sending = true;
   document.getElementById('chat-send').disabled = true;
   chatWs.send(JSON.stringify({ type: 'user_message', content: idea.prompt }));
+}
+
+// ── "What's happening" feed ───────────────────────────────────────────────────
+let feedStatusEl  = null;   // single transient entry for thinking/browsing
+const feedByAction = {};    // action_id → feed entry element
+
+function feedEl() { return document.getElementById('feed-list'); }
+
+function feedAdd(icon, text, state) {
+  const list = feedEl();
+  const empty = list.querySelector('.feed-empty');
+  if (empty) empty.remove();
+  const el = document.createElement('div');
+  el.className = `feed-item ${state || 'info'}`;
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  el.innerHTML = `<span class="feed-ico">${icon}</span>
+    <span class="feed-text">${esc(text)}</span>
+    <span class="feed-time">${time}</span>`;
+  list.appendChild(el);
+  list.scrollTop = list.scrollHeight;
+  return el;
+}
+
+function feedSet(el, icon, text, state) {
+  if (!el) return;
+  el.className = `feed-item ${state || 'info'}`;
+  el.querySelector('.feed-ico').textContent  = icon;
+  if (text !== undefined) el.querySelector('.feed-text').textContent = text;
+}
+
+function feedTransient(icon, text, state) {
+  // One rolling entry for live agent status (thinking / browsing)
+  if (!feedStatusEl || !feedStatusEl.isConnected) {
+    feedStatusEl = feedAdd(icon, text, state || 'pending');
+  } else {
+    feedSet(feedStatusEl, icon, text, state || 'pending');
+    feedEl().appendChild(feedStatusEl);   // move to bottom
+    feedEl().scrollTop = feedEl().scrollHeight;
+  }
+}
+
+function feedClearTransient() {
+  if (feedStatusEl && feedStatusEl.isConnected) feedStatusEl.remove();
+  feedStatusEl = null;
+}
+
+function clearFeed() {
+  feedEl().innerHTML = '<div class="feed-empty">Activity will appear here as your agent works.</div>';
+  feedStatusEl = null;
 }
 
 // ── Console collapse (Option B — chevron tab on divider) ──────────────────────
@@ -265,7 +311,6 @@ function initDragDividers() {
   let dragging = null, startX, startY, startW, startH;
 
   vDiv.addEventListener('mousedown', (e) => {
-    if (!terminalsVisible) return;   // can't drag when terminals are hidden
     dragging = 'v'; startX = e.clientX; startW = colChat.offsetWidth;
     vDiv.classList.add('dragging'); document.body.classList.add('dragging-v'); e.preventDefault();
   });
@@ -562,6 +607,59 @@ function retryLastMessage(btn) {
   chatWs.send(JSON.stringify({ type: 'user_message', content: lastUserMessage }));
 }
 
+// ── Friendly error messages ───────────────────────────────────────────────────
+const ERROR_PATTERNS = [
+  [/connection refused/i,                                  "Can't reach your server",        "Your server refused the connection — it may be powered off, or a firewall/port is blocking it."],
+  [/nodename nor servname|name or service not known|getaddrinfo|could not resolve/i, "Server address not found", "The server address couldn't be looked up — check for typos in the host or IP."],
+  [/timed?\s?out|timeout/i,                                "Your server didn't respond in time", "The server took too long to answer. It might be busy or temporarily unreachable."],
+  [/permission denied|authentication failed|auth fail/i,   "Login was refused",              "The username or password may be incorrect."],
+  [/no space left/i,                                       "Your server is out of disk space", "The disk is full — free up some space and try again."],
+  [/command not found/i,                                   "A required tool is missing",     "The server doesn't have a program needed for this step. Ask Claude to install it."],
+  [/host key|known_hosts/i,                                "Server identity changed",        "The server's SSH fingerprint changed — this can happen after a rebuild."],
+  [/rate limit/i,                                          "Too many requests just now",     "We briefly hit a rate limit. Wait a moment and try again."],
+];
+
+function friendlyError(raw) {
+  const r = String(raw || '');
+  for (const [re, title, body] of ERROR_PATTERNS) if (re.test(r)) return { title, body, raw: r };
+  return { title: "Something went wrong", body: "An unexpected error occurred. You can try again, or ask Claude to look into it.", raw: r };
+}
+
+function addFriendlyError(raw) {
+  const f  = friendlyError(raw);
+  const el = document.createElement('div');
+  el.className = 'bubble friendly-error';
+  el.innerHTML = `
+    <div class="ferr-title">⚠️ ${esc(f.title)}</div>
+    <div class="ferr-body">${esc(f.body)}</div>
+    <div class="ferr-actions">
+      <button class="retry-btn" onclick="retryLastMessage(this)">↩ Try again</button>
+      <button class="ferr-help-btn" data-raw="${esc(f.raw)}" onclick="askClaudeAboutError(this)">💬 Ask Claude</button>
+    </div>
+    ${f.raw ? `<button class="ferr-toggle" onclick="toggleErrDetails(this)">technical details ▾</button>
+               <pre class="ferr-raw" style="display:none">${esc(f.raw)}</pre>` : ''}`;
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat();
+  feedAdd('✗', f.title, 'error');
+}
+
+function toggleErrDetails(btn) {
+  const pre = btn.nextElementSibling;
+  const open = pre.style.display !== 'none';
+  pre.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? 'technical details ▾' : 'technical details ▴';
+}
+
+function askClaudeAboutError(btn) {
+  const raw = btn.getAttribute('data-raw') || '';
+  if (sending || !chatWs || chatWs.readyState !== WebSocket.OPEN) return;
+  const prompt = `I hit this error and don't understand it. In plain English, what does it mean and how do I fix it?\n\nError: ${raw}`;
+  lastUserMessage = prompt;
+  addBubble('you', 'Help me understand that error.');
+  sending = true; document.getElementById('chat-send').disabled = true;
+  chatWs.send(JSON.stringify({ type: 'user_message', content: prompt }));
+}
+
 // ── Send message ──────────────────────────────────────────────────────────────
 function sendMessage() {
   const input = document.getElementById('chat-input');
@@ -585,10 +683,11 @@ function initChat() {
   chatWs.onmessage = (e) => {
     let msg; try { msg = JSON.parse(e.data); } catch (_) { return; }
     switch (msg.type) {
-      case 'status':      addBubble('status', msg.message); break;
+      case 'status':      addBubble('status', msg.message); feedAdd('•', msg.message, 'info'); break;
       case 'tui_thinking': {
         const st = msg.status || { code: 'thinking', label: 'Agent is thinking…' };
         updateAgentStatus(st.code, st.label);
+        feedTransient(STATUS_EMOJI[st.code] || '🟡', `${st.label} (${msg.elapsed}s)`, 'pending');
         if (!tuiThinkingBubble) tuiThinkingBubble = addBubble('status', '');
         const emoji = STATUS_EMOJI[st.code] || '🟡';
         tuiThinkingBubble.textContent = `${emoji} ${st.label} (${msg.elapsed}s)`;
@@ -632,10 +731,14 @@ function initChat() {
         removeThinkingBubble();
         document.getElementById('tui-cancel-btn').style.display = 'none';
         updateAgentStatus('ready', 'Agent is ready');
+        feedClearTransient();
+        feedAdd('🦞', 'Agent replied', 'done');
         addTuiOutputBubble(msg.cmd, msg.output); maybeShowTuiHint(msg.output); break;
 
       case 'agent_status':
         updateAgentStatus(msg.code, msg.label);
+        if (msg.code === 'ready') feedClearTransient();
+        else feedTransient(STATUS_EMOJI[msg.code] || '🟡', msg.label || 'Working…', 'pending');
         break;
       case 'tasks_updated':
         if (document.getElementById('activity-modal').style.display === 'flex') loadActivity();
@@ -643,19 +746,29 @@ function initChat() {
       case 'memory_updated':
         if (document.getElementById('memory-modal').style.display === 'flex') loadMemory();
         break;
-      case 'action':       addActionBubble(msg); break;
+      case 'action': {
+        addActionBubble(msg);
+        const d = msg.desc || {};
+        feedByAction[msg.id] = feedAdd(d.icon || '⚙️', d.headline || 'Action proposed', 'info');
+        break;
+      }
       case 'action_done':
         dismissTuiHint(); resolveAction(msg.action_id, 'done', `✓ ${msg.label}`);
+        feedSet(feedByAction[msg.action_id], '✓', undefined, 'done');
         document.getElementById('claude-cancel-btn').style.display = ''; break;
-      case 'action_error': resolveAction(msg.action_id, 'error-state', `✗ ${msg.message}`); break;
+      case 'action_error':
+        resolveAction(msg.action_id, 'error-state', `✗ ${msg.message}`);
+        feedSet(feedByAction[msg.action_id], '✗', undefined, 'error');
+        break;
       case 'error':
         removeThinkingBubble();
+        feedClearTransient();
         if (currentClaudeBubble) { currentClaudeBubble.remove(); currentClaudeBubble = null; }
         if (msg.subtype === 'credits_exhausted') addCreditsBubble();
         else if (msg.subtype === 'rate_limit')   addRateLimitBubble();
         else if (msg.subtype === 'no_api_key')   addNoApiKeyBubble();
         else if (msg.subtype === 'auth_expired') { localStorage.removeItem('gov_token'); location.href = '/'; }
-        else addBubble('error', msg.message || 'Unknown error');
+        else addFriendlyError(msg.message || 'Unknown error');
         sending = false; setActionButtonsDisabled(false);
         document.getElementById('chat-send').disabled = false; break;
     }

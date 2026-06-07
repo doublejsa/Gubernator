@@ -455,6 +455,61 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
 .modal-add-btn:hover { opacity: 0.85; }
 .empty-state { color: var(--dim); font-size: 13px; text-align: center; padding: 32px 0; }
 
+/* ── What's-happening feed ─────────────────────────────────────────────────── */
+.feed-panel { flex: 1; min-width: 0; background: var(--bg); }
+.feed-clear {
+  margin-left: auto; font-size: 11px; color: var(--dim); cursor: pointer;
+  padding: 2px 6px; border-radius: 4px;
+}
+.feed-clear:hover { color: var(--text); background: #1c2128; }
+.feed-list {
+  flex: 1; overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.feed-list::-webkit-scrollbar { width: 4px; }
+.feed-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.feed-empty { color: var(--dim); font-size: 13px; text-align: center; padding: 40px 16px; line-height: 1.6; }
+
+.feed-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px 10px; border-radius: 6px;
+  font-size: 13px; line-height: 1.4;
+  animation: feed-in 0.2s ease;
+}
+.feed-item:hover { background: #11161d; }
+@keyframes feed-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.feed-ico  { font-size: 14px; flex-shrink: 0; width: 18px; text-align: center; margin-top: 1px; }
+.feed-text { flex: 1; min-width: 0; word-break: break-word; }
+.feed-time { font-size: 10px; color: #6e7681; flex-shrink: 0; margin-top: 2px; }
+.feed-item.info    .feed-text { color: var(--dim); }
+.feed-item.pending .feed-text { color: var(--orange); }
+.feed-item.pending .feed-ico  { animation: status-pulse 1.5s ease-in-out infinite; }
+.feed-item.done    .feed-text { color: var(--text); }
+.feed-item.done    .feed-ico  { color: var(--green); }
+.feed-item.error   .feed-text { color: var(--red); }
+.feed-item.error   .feed-ico  { color: var(--red); }
+
+/* ── Friendly error bubble ─────────────────────────────────────────────────── */
+.bubble.friendly-error {
+  align-self: flex-start; background: #2d1215; border: 1px solid #5c2327;
+  color: #ffb3b3; line-height: 1.6; max-width: 92%;
+}
+.ferr-title { font-size: 14px; font-weight: 700; color: #ff9b9b; margin-bottom: 4px; }
+.ferr-body  { font-size: 13px; color: #ffc9c9; margin-bottom: 10px; }
+.ferr-actions { display: flex; gap: 8px; margin-bottom: 6px; }
+.ferr-help-btn {
+  padding: 5px 14px; background: transparent; border: 1px solid #5c2327;
+  border-radius: 6px; color: #ffb3b3; font-size: 13px; cursor: pointer;
+}
+.ferr-help-btn:hover { background: #3a1518; }
+.ferr-toggle { background: none; border: none; color: #c97a7a; font-size: 11px; cursor: pointer; padding: 2px 0; }
+.ferr-toggle:hover { color: #ffb3b3; }
+.ferr-raw {
+  background: #1a0c0e; border: 1px solid #5c2327; border-radius: 4px;
+  padding: 6px 9px; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: #d99; white-space: pre-wrap; word-break: break-word; margin-top: 4px; max-height: 140px; overflow-y: auto;
+}
+
 /* Skills modal tabs */
 .skills-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
 .skills-tab {

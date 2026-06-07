@@ -66,8 +66,20 @@
 
       <div class="v-divider" id="v-divider"></div>
 
-      <!-- Right panel -->
-      <div class="right-panel" id="right-panel">
+      <!-- What's happening — plain-English activity feed (default right view) -->
+      <div class="col feed-panel" id="whats-happening">
+        <div class="col-header">
+          <span class="col-icon">📡</span>
+          <span class="col-title">What's happening</span>
+          <span class="feed-clear" onclick="clearFeed()" title="Clear the feed">clear</span>
+        </div>
+        <div class="feed-list" id="feed-list">
+          <div class="feed-empty">Activity will appear here as your agent works.</div>
+        </div>
+      </div>
+
+      <!-- Right panel — raw terminals (advanced, hidden by default) -->
+      <div class="right-panel" id="right-panel" style="display:none">
 
         <!-- Agent (formerly OpenClaw TUI) -->
         <div class="col" id="col-tui">
