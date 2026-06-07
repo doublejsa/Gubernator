@@ -50,7 +50,7 @@ TUI_LOG_DIR = Path.home() / "gubernator_logs"
 VPS_PROBE_CMD = r"""
 echo '### OS'; (cat /etc/os-release 2>/dev/null | grep PRETTY_NAME); uname -sr
 echo '### OpenClaw'; openclaw --version 2>/dev/null || echo 'openclaw: not found'
-echo '### Skills'; openclaw skills 2>/dev/null | head -50
+echo '### Skills'; openclaw skills 2>/dev/null | head -120
 echo '### SkillsDir'; ls /usr/lib/node_modules/openclaw/skills/ 2>/dev/null
 echo '### Runtimes'; node --version 2>/dev/null; python3 --version 2>/dev/null
 echo '### Tools'; for t in playwright chromium google-chrome docker git nginx apache2 mysql psql ftp lftp rsync; do command -v "$t" >/dev/null 2>&1 && echo "$t: yes"; done
@@ -63,11 +63,15 @@ VPS_PROFILE_PROMPT = (
     "[VPS PROFILE SCAN] The user just connected this VPS. Below is a read-only scan of "
     "what's installed and configured on it. Distill it into durable capability facts using "
     "[REMEMBER:vps_profile] tags — one tag per meaningful capability or installed component.\n\n"
-    "Capture: OpenClaw version; the full list of installed agent skills; what the agent can do "
-    "(e.g. can_browse_web if Playwright/Chromium present, has_docker, has_mysql); language runtimes; "
-    "and which config files / secrets / env vars EXIST (names only — never values).\n"
+    "Capture: OpenClaw version; what the agent can do (e.g. can_browse_web if Playwright/Chromium "
+    "present, has_docker, has_mysql); language runtimes; and which config files / secrets / env "
+    "vars EXIST (names only — never values).\n\n"
+    "CRITICAL — the installed agent skills are the most important fact. Record the COMPLETE list "
+    "of ready/available skills, every single one BY NAME, comma-separated, in a single fact keyed "
+    "'skills_ready'. Do NOT abbreviate, summarise, or write 'and N others' — list them all in full. "
+    "Separately record the count as 'skills_count' (e.g. '20 ready of 66 total').\n\n"
     "Do NOT record transient state (free memory, disk usage, running processes).\n"
-    "Keep each fact concise. Use clear snake_case keys.\n\n"
+    "Keep other facts concise. Use clear snake_case keys.\n\n"
     "After the [REMEMBER] tags, give the user a friendly 2–3 sentence plain-English summary of "
     "what their agent can do, based on what you found.\n\n"
     "Scan output:\n{scan}"
