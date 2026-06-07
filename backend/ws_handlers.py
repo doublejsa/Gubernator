@@ -10,7 +10,7 @@ from typing import Optional
 
 import anthropic as _anthropic
 from fastapi import WebSocket, WebSocketDisconnect
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models import User, VpsConnection, ChatSession, Credential, Task, MemoryFact
@@ -45,6 +45,33 @@ _AWAITING_RE = re.compile(
 )
 
 TUI_LOG_DIR = Path.home() / "gubernator_logs"
+
+# Read-only VPS profiling probe — captures capabilities, never secret values.
+VPS_PROBE_CMD = r"""
+echo '### OS'; (cat /etc/os-release 2>/dev/null | grep PRETTY_NAME); uname -sr
+echo '### OpenClaw'; openclaw --version 2>/dev/null || echo 'openclaw: not found'
+echo '### Skills'; openclaw skills 2>/dev/null | head -50
+echo '### SkillsDir'; ls /usr/lib/node_modules/openclaw/skills/ 2>/dev/null
+echo '### Runtimes'; node --version 2>/dev/null; python3 --version 2>/dev/null
+echo '### Tools'; for t in playwright chromium google-chrome docker git nginx apache2 mysql psql ftp lftp rsync; do command -v "$t" >/dev/null 2>&1 && echo "$t: yes"; done
+echo '### ConfigFiles'; ls -1 /root/.openclaw/ 2>/dev/null
+echo '### Secrets(names only)'; ls -1 /root/.openclaw/secrets/ 2>/dev/null
+echo '### EnvVarNames(names only)'; grep -oE '^[A-Z_0-9]+=' /root/.openclaw/.env 2>/dev/null | tr -d '='
+"""
+
+VPS_PROFILE_PROMPT = (
+    "[VPS PROFILE SCAN] The user just connected this VPS. Below is a read-only scan of "
+    "what's installed and configured on it. Distill it into durable capability facts using "
+    "[REMEMBER:vps_profile] tags — one tag per meaningful capability or installed component.\n\n"
+    "Capture: OpenClaw version; the full list of installed agent skills; what the agent can do "
+    "(e.g. can_browse_web if Playwright/Chromium present, has_docker, has_mysql); language runtimes; "
+    "and which config files / secrets / env vars EXIST (names only — never values).\n"
+    "Do NOT record transient state (free memory, disk usage, running processes).\n"
+    "Keep each fact concise. Use clear snake_case keys.\n\n"
+    "After the [REMEMBER] tags, give the user a friendly 2–3 sentence plain-English summary of "
+    "what their agent can do, based on what you found.\n\n"
+    "Scan output:\n{scan}"
+)
 
 
 def load_system_block(memory_text: str = "") -> list[dict]:
@@ -461,6 +488,34 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             + "\n".join(lines)
         )
 
+    async def has_vps_profile() -> bool:
+        row = (await db.execute(
+            select(MemoryFact).where(MemoryFact.user_id == user.id,
+                                     MemoryFact.category == "vps_profile").limit(1)
+        )).scalar_one_or_none()
+        return row is not None
+
+    async def clear_vps_profile():
+        await db.execute(delete(MemoryFact).where(
+            MemoryFact.user_id == user.id, MemoryFact.category == "vps_profile"))
+        await db.commit()
+        await refresh_memory_block()
+
+    async def profile_vps():
+        """Read-only scan of the VPS → Claude distils into vps_profile memory facts."""
+        _, shell = get_sessions()
+        if not (shell and shell.connected):
+            return
+        await ws.send_json({"type": "status",
+                            "message": "🔍 Profiling your VPS — checking what's installed…"})
+        scan = await run_vps_cmd(VPS_PROBE_CMD)
+        if not scan or "(VPS shell not connected)" in scan:
+            await ws.send_json({"type": "status", "message": "⚠ Couldn't scan the VPS — skipping profile"})
+            return
+        full = await stream_claude(VPS_PROFILE_PROMPT.format(scan=scan))
+        if full:
+            await finish_response(full)   # persists [REMEMBER:vps_profile] facts
+
     async def save_history():
         nonlocal db_session
         if not claude_history:
@@ -807,6 +862,11 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         shell_ok = shell is not None and shell.connected
         if tui_ok and shell_ok:
             await run_vps_cmd(f"tmux set-option -t {TMUX_SESSION} mouse on 2>/dev/null")
+            # First connection to this VPS — profile it once, then we're done.
+            if not await has_vps_profile():
+                await ws.send_json({"type": "status", "message": "✅ VPS connected — first time here, let me get to know it"})
+                await profile_vps()
+                return
             tui_screen = await run_vps_cmd(f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -120 2>/dev/null")
             tui_ctx    = f"\nCurrent TUI screen:\n{tui_screen}\n" if tui_screen.strip() else ""
             if saved_at:
@@ -990,6 +1050,10 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
 
             elif t == "dismiss":
                 pending_actions.pop(msg.get("action_id"), None)
+
+            elif t == "reprofile_vps":
+                await clear_vps_profile()
+                await profile_vps()
 
             elif t == "check_agent":
                 # Manual re-check — capture the live agent screen and feed it to Claude.

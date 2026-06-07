@@ -753,6 +753,19 @@ async function deleteVps(id, label) {
   openVpsModal();
 }
 
+function reprofileVps() {
+  if (!chatWs || chatWs.readyState !== WebSocket.OPEN) {
+    alert('Not connected — try again in a moment.');
+    return;
+  }
+  if (sending) { alert('Claude is busy — wait for it to finish, then re-profile.'); return; }
+  closeModal('vps-modal');
+  sending = true;
+  document.getElementById('chat-send').disabled = true;
+  thinkingBubble = addThinkingBubble();
+  chatWs.send(JSON.stringify({ type: 'reprofile_vps' }));
+}
+
 // ── Onboarding wizard ─────────────────────────────────────────────────────────
 async function checkOnboarding() {
   const [vpsRes, credRes] = await Promise.all([
