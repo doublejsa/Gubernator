@@ -4,9 +4,37 @@ All handlers require auth via ?token= query param (set from cookie on connect).
 """
 from __future__ import annotations
 import asyncio, json, re, uuid
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+
+CIRCUIT_BREAKER_NOTE = (
+    "[GUBERNATOR CIRCUIT-BREAKER] You have repeated the same approach several times "
+    "without success — the system detected a loop. STOP. Do NOT retry that command again. "
+    "Step back and do ONE of the following:\n"
+    "1. If this is a repeatable, deterministic procedure (deploy, backup, scheduled job, "
+    "anything with fixed steps + secrets): switch to the 'Build a tool when stuck' playbook — "
+    "discover the specifics ONCE and [REMEMBER] them, set up auth ONCE, write a single "
+    "idempotent script via [VPS_WRITE] with clean JSON output, wrap it in a thin SKILL.md, "
+    "register it, and [REMEMBER] how to run it.\n"
+    "2. If you're missing information, ask the user ONE specific question.\n"
+    "Tell the user in one sentence that you're changing approach because the previous one "
+    "kept failing."
+)
+
+def _action_signature(a: dict) -> str:
+    """Normalised 'shape' of an action so repeats are detectable across loops."""
+    t = a.get("type")
+    d = (a.get("data") or "").strip().lower()
+    if t == "vps_cmd":
+        return "cmd:" + " ".join(d.split()[:3])
+    if t == "tui_input":
+        return "tui:" + " ".join(d.split()[:6])
+    if t == "vps_write":
+        return "write:" + (a.get("path") or "")[:50]
+    return str(t)
 
 import anthropic as _anthropic
 from fastapi import WebSocket, WebSocketDisconnect
@@ -466,6 +494,10 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
     pending_actions: dict[str, dict] = {}
     session_tokens = session_cost = 0.0
     user_id_str    = str(user.id)
+    # Loop / thrash detection state
+    recent_sigs    = deque(maxlen=10)   # normalised signatures of recent actions
+    error_streak   = 0                  # consecutive failed actions
+    thrash_pending = False              # inject circuit-breaker on next Claude turn
     # Coordination flag — true while poll_tui_until_done() is running so the
     # always-on background poller doesn't double-capture/fight it.
     status_poll_lock = {"active": False}
@@ -634,7 +666,13 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         await ws.send_json({"type": "status", "message": "✓ Session history compressed"})
 
     async def stream_claude(user_content: str, _retry: int = 0) -> str:
-        nonlocal session_tokens, session_cost
+        nonlocal session_tokens, session_cost, thrash_pending, error_streak
+        # Circuit-breaker: if a loop was detected, force a strategy switch this turn
+        if thrash_pending and _retry == 0:
+            user_content = f"{CIRCUIT_BREAKER_NOTE}\n\n---\n\n{user_content}"
+            thrash_pending = False
+            error_streak   = 0
+            recent_sigs.clear()
         await maybe_compress()
         claude_history.append({"role": "user", "content": user_content})
         await ws.send_json({"type": "claude_start"})
@@ -710,8 +748,16 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         # Then parse confirmable actions from what remains
         clean_text, actions = parse_actions(clean_text)
         if actions:
+            nonlocal thrash_pending
             a = actions[0]
             pending_actions[a["id"]] = a
+            # Loop detection: is Claude proposing the same action shape again?
+            sig = _action_signature(a)
+            recent_sigs.append(sig)
+            repeats = sum(1 for s in recent_sigs if s == sig)
+            if (repeats >= 3 or error_streak >= 3) and not thrash_pending:
+                thrash_pending = True
+                await ws.send_json({"type": "loop_detected", "count": max(repeats, error_streak)})
             payload = {
                 "type":        "action",
                 "action_type": a["type"],
@@ -1014,6 +1060,12 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                             cancelled = True
                     if not cancelled:
                         await ws.send_json({"type": "vps_output", "cmd": action["data"], "output": output})
+                        # Track failure streak for loop detection
+                        ol = (output or "").lower()
+                        if any(m in ol for m in ("error", "failed", "fatal:", "denied", "not found", "cannot", "traceback")):
+                            error_streak += 1
+                        else:
+                            error_streak = 0
                         vps_content = f"Command run: `{action['data']}`\nOutput:\n{output}"
                         await run_claude(vps_content)
 

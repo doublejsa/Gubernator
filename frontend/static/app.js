@@ -643,6 +643,19 @@ function addFriendlyError(raw) {
   feedAdd('✗', f.title, 'error');
 }
 
+function addLoopBanner(count) {
+  document.querySelectorAll('.loop-banner').forEach(el => el.remove());
+  const el = document.createElement('div');
+  el.className = 'bubble loop-banner';
+  el.innerHTML = `
+    <div class="loop-title">🔁 Gubernator noticed this is looping${count ? ` (tried ~${count}×)` : ''}</div>
+    <div class="loop-body">The same approach keeps failing. Claude is switching strategy — for a
+      repeatable job like this, it'll try to build a <strong>reliable script</strong> that works
+      first-time, every time, instead of retrying by hand.</div>`;
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat();
+}
+
 function toggleErrDetails(btn) {
   const pre = btn.nextElementSibling;
   const open = pre.style.display !== 'none';
@@ -739,6 +752,10 @@ function initChat() {
         updateAgentStatus(msg.code, msg.label);
         if (msg.code === 'ready') feedClearTransient();
         else feedTransient(STATUS_EMOJI[msg.code] || '🟡', msg.label || 'Working…', 'pending');
+        break;
+      case 'loop_detected':
+        addLoopBanner(msg.count || 0);
+        feedAdd('🔁', 'Loop detected — switching to a more reliable approach', 'pending');
         break;
       case 'tasks_updated':
         if (document.getElementById('activity-modal').style.display === 'flex') loadActivity();

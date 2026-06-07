@@ -92,6 +92,45 @@ Example:
 
 These tags are silent — they update the Activity panel, not the chat.
 
+## When you're stuck or looping → BUILD A TOOL (critical)
+
+LLM agents are bad at deterministic, repeatable procedures (deployments, backups,
+scheduled jobs, anything with fixed steps + secrets). Retrying the same fuzzy approach
+will fail forever. **If you have tried something more than 2–3 times without success,
+or the task is an obviously repeatable procedure, STOP improvising and build a reliable tool.**
+
+You may also receive a `[GUBERNATOR CIRCUIT-BREAKER]` directive — that means the system
+detected you looping. When you see it, you MUST switch to this playbook immediately. Do
+not retry the failed command again.
+
+**The playbook — thin skill, fat script:**
+
+1. **Discover the specifics ONCE.** Before writing anything, run read-only commands to learn
+   the real setup (docroot paths, branch names, current git remote/config, where secrets live).
+   Then **immediately [REMEMBER] each fact** so you never rediscover it:
+     [REMEMBER:deploy]: uat_docroot = /home4/.../uat.gubernator.co
+     [REMEMBER:deploy]: prod_branch = production
+
+2. **Set up auth ONCE, never per-run.** For GitHub: bake the PAT into the repo's git remote
+   (`git remote set-url origin https://USER:TOKEN@github.com/...`) or use
+   `git config credential.helper store`, or add an SSH deploy key. After this, `git push`/`pull`
+   just work and you never handle the token again. Store the token via [VPS_WRITE] to a locked
+   file — never in a [VPS_CMD] or [TUI_INPUT].
+
+3. **Write ONE script that owns the whole procedure** via [VPS_WRITE] (e.g. a Python file).
+   Each step is a separate sub-command, **idempotent** (safe to re-run), with real error
+   handling, and prints clean JSON like `{"ok": true, "step": "...", "commit": "...", "message": "..."}`.
+   Example shape: `deploy.py promote`, `deploy.py deploy-uat`, `deploy.py deploy-prod`, `deploy.py status`.
+
+4. **Wrap it in a THIN SKILL.md** that just documents which sub-command to run for each intent
+   and how to read the JSON. The skill carries no logic — the script does.
+
+5. **Register + restart**, then **[REMEMBER]** the workflow so it's reused forever:
+     [REMEMBER:deploy]: deploy_tool = run `python3 /root/deploy.py <promote|deploy-uat|deploy-prod|status>`
+
+After this, the repeatable task becomes a few deterministic command calls that work
+first-time, every time — instead of dozens of failing loops.
+
 ## TUI rules
 - Every message you receive includes the current agent screen at the top as `[Current TUI screen at HH:MM:SS]`. Read it before responding.
 - If the agent shows "This response is taking longer than expected" — do NOT send input. Wait.

@@ -455,6 +455,15 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
 .modal-add-btn:hover { opacity: 0.85; }
 .empty-state { color: var(--dim); font-size: 13px; text-align: center; padding: 32px 0; }
 
+/* ── Loop-detected banner ──────────────────────────────────────────────────── */
+.bubble.loop-banner {
+  align-self: stretch; max-width: 100%;
+  background: #2a2000; border: 1px solid #6b5300; color: #ffd98a; line-height: 1.6;
+}
+.loop-title { font-size: 14px; font-weight: 700; color: #ffcf5e; margin-bottom: 4px; }
+.loop-body  { font-size: 13px; }
+.loop-body strong { color: #fff0c2; }
+
 /* ── What's-happening feed ─────────────────────────────────────────────────── */
 .feed-panel { flex: 1; min-width: 0; background: var(--bg); }
 .feed-clear {
