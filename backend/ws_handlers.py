@@ -47,12 +47,18 @@ _AWAITING_RE = re.compile(
 TUI_LOG_DIR = Path.home() / "gubernator_logs"
 
 
-def load_system_block() -> list[dict]:
+def load_system_block(memory_text: str = "") -> list[dict]:
+    """System prompt = prompt guide (always cached) + the user's durable memory
+    facts as a second cached block. Memory lives here, NOT in the message history,
+    so it is never lost to compression and is present on every API call."""
     try:
-        text = PROMPT_GUIDE_PATH.read_text()
+        guide = PROMPT_GUIDE_PATH.read_text()
     except Exception:
-        text = _FALLBACK_PROMPT
-    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+        guide = _FALLBACK_PROMPT
+    blocks = [{"type": "text", "text": guide, "cache_control": {"type": "ephemeral"}}]
+    if memory_text:
+        blocks.append({"type": "text", "text": memory_text, "cache_control": {"type": "ephemeral"}})
+    return blocks
 
 
 def append_tui_log(user_id: str, cmd: str, output: str):
@@ -432,6 +438,28 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
     # Coordination flag — true while poll_tui_until_done() is running so the
     # always-on background poller doesn't double-capture/fight it.
     status_poll_lock = {"active": False}
+    # Durable memory facts rendered for the system prompt (refreshed on change)
+    memory_block_text = ""
+
+    async def refresh_memory_block():
+        """Re-render the user's memory facts into the system-prompt block.
+        Called at connect and whenever facts change."""
+        nonlocal memory_block_text
+        facts = (await db.execute(
+            select(MemoryFact).where(MemoryFact.user_id == user.id)
+            .order_by(MemoryFact.category, MemoryFact.key)
+        )).scalars().all()
+        if not facts:
+            memory_block_text = ""
+            return
+        lines = [f"- {f.key}: {f.value}" + (f"  [{f.category}]" if f.category != "general" else "")
+                 for f in facts]
+        memory_block_text = (
+            "## What you remember about this user's setup\n"
+            "Durable facts carried across all sessions. Treat as authoritative unless "
+            "the user corrects you. If something here is now wrong, update it with [REMEMBER].\n\n"
+            + "\n".join(lines)
+        )
 
     async def save_history():
         nonlocal db_session
@@ -462,6 +490,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 db.add(MemoryFact(user_id=user.id, key=f["key"], value=f["value"],
                                   category=f["category"], embedding=vec))
         await db.commit()
+        await refresh_memory_block()   # keep the system-prompt facts current
         await ws.send_json({"type": "memory_updated"})
 
     async def persist_tasks(tasks: list[dict]):
@@ -518,7 +547,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         if not force:
             try:
                 count = await aclient.messages.count_tokens(
-                    model=HAIKU_MODEL, system=load_system_block(), messages=claude_history)
+                    model=HAIKU_MODEL, system=load_system_block(memory_block_text), messages=claude_history)
                 if count.input_tokens < CONTEXT_COMPRESS_AT:
                     return
             except Exception:
@@ -528,7 +557,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         recent      = claude_history[-KEEP_RECENT_MSGS:]
         try:
             resp = await aclient.messages.create(
-                model=HAIKU_MODEL, max_tokens=2048, system=load_system_block(),
+                model=HAIKU_MODEL, max_tokens=2048, system=load_system_block(memory_block_text),
                 messages=[*to_compress, {"role": "user", "content":
                     "Write a concise but complete summary of our conversation so far. "
                     "Capture everything needed to continue: commands run, outputs, decisions made, current state."
@@ -554,7 +583,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         try:
             async with aclient.messages.stream(
                 model=HAIKU_MODEL, max_tokens=4096,
-                system=load_system_block(), messages=claude_history,
+                system=load_system_block(memory_block_text), messages=claude_history,
             ) as stream:
                 async for chunk in stream.text_stream:
                     full += chunk
@@ -764,22 +793,10 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
     # ── Startup ────────────────────────────────────────────────────────────────
     await ws.send_json({"type": "status", "message": "Connected"})
 
-    async def load_memory_block() -> str:
-        """Load all of this user's stored facts as a context block for Claude."""
-        facts = (await db.execute(
-            select(MemoryFact).where(MemoryFact.user_id == user.id)
-            .order_by(MemoryFact.category, MemoryFact.key)
-        )).scalars().all()
-        if not facts:
-            return ""
-        lines = [f"- {f.key}: {f.value}" + (f"  ({f.category})" if f.category != "general" else "")
-                 for f in facts]
-        return ("\n\n[What you remember about this user's setup — durable facts from "
-                "previous sessions]:\n" + "\n".join(lines) + "\n")
-
     async def startup_check():
+        # Memory now lives in the system prompt (load_system_block) — never
+        # compressed, present on every call. No need to inject it as a message.
         saved_at = db_session.updated_at.isoformat() if db_session else None
-        memory_block = await load_memory_block()
         for _ in range(6):
             await asyncio.sleep(1)
             tui, shell = get_sessions()
@@ -796,7 +813,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 await ws.send_json({"type": "status", "message": "✅ VPS connected"})
                 full = await stream_claude(
                     f"[Startup — session restored from {saved_at[:16].replace('T',' ')}]\n"
-                    f"VPS and OpenClaw TUI connected.\n{tui_ctx}{memory_block}\n"
+                    f"VPS and OpenClaw TUI connected.\n{tui_ctx}\n"
                     "IMPORTANT ROLE RESET: You are Gubernator, the user's primary interface to their OpenClaw agent. "
                     "Never refuse. Never say something is outside your scope.\n\n"
                     "Briefly summarise what we were working on (1–2 sentences) and suggest 2–3 concrete next steps."
@@ -804,7 +821,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             else:
                 await ws.send_json({"type": "status", "message": "✅ OpenClaw TUI and VPS Shell connected"})
                 full = await stream_claude(
-                    f"[Startup — no previous session]\nVPS and OpenClaw TUI connected.\n{tui_ctx}{memory_block}\n"
+                    f"[Startup — no previous session]\nVPS and OpenClaw TUI connected.\n{tui_ctx}\n"
                     "Briefly describe what's showing in the TUI (1 sentence) and suggest 2–3 things to do next."
                 )
             if full:
@@ -820,6 +837,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             if full:
                 await finish_response(full)
 
+    await refresh_memory_block()   # load durable facts into the system prompt
     asyncio.create_task(startup_check())
     _bg_poller = asyncio.create_task(background_status_poller())
 
