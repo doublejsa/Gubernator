@@ -9,6 +9,37 @@
 </head>
 <body>
   <div class="app" id="app">
+
+    <!-- ── Left sidebar (ChatGPT-style) ──────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <button class="sidebar-toggle" onclick="toggleSidebar()" title="Collapse / expand sidebar">☰</button>
+        <span class="sidebar-logo">⚙️ Gubernator</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item" onclick="openActivityModal()" title="Activity"><span class="nav-ico">📋</span><span class="nav-label">Activity</span></button>
+        <button class="nav-item" onclick="openSkillsModal()"   title="Skills"><span class="nav-ico">🧩</span><span class="nav-label">Skills</span></button>
+        <button class="nav-item" onclick="openMemoryModal()"   title="Memory"><span class="nav-ico">🧠</span><span class="nav-label">Memory</span></button>
+        <button class="nav-item" onclick="openVaultModal()"    title="Vault"><span class="nav-ico">🔑</span><span class="nav-label">Vault</span></button>
+        <button class="nav-item" onclick="openVpsModal()"      title="VPS"><span class="nav-ico">🖥</span><span class="nav-label">VPS</span></button>
+        <button class="nav-item" onclick="openSettingsModal()" title="Settings"><span class="nav-ico">⚙️</span><span class="nav-label">Settings</span></button>
+        <button class="nav-item" id="terminals-toggle-btn" onclick="toggleTerminals()" title="Show / hide terminals"><span class="nav-ico">⊞</span><span class="nav-label">Terminals</span></button>
+      </nav>
+
+      <div class="sidebar-ideas">
+        <div class="sidebar-heading">💡 Ideas</div>
+        <div id="ideas-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <span class="sidebar-user" id="bar-user"></span>
+        <button class="nav-item" onclick="doLogout()" title="Sign out"><span class="nav-ico">↩</span><span class="nav-label">Sign out</span></button>
+      </div>
+    </aside>
+
+    <!-- ── Main area ─────────────────────────────────────────────────────── -->
+    <div class="main-area" id="main-area">
     <div class="app-columns">
 
       <!-- Claude Chat -->
@@ -85,20 +116,7 @@
 
       </div>
     </div>
-
-    <!-- Bottom bar -->
-    <div class="bottom-bar">
-      <button class="bar-btn" onclick="openActivityModal()" title="What your agent has done">📋 Activity</button>
-      <button class="bar-btn" onclick="openSkillsModal()"   title="Browse &amp; install agent skills">🧩 Skills</button>
-      <button class="bar-btn" onclick="openMemoryModal()"   title="What Gubernator remembers">🧠 Memory</button>
-      <button class="bar-btn" onclick="openVaultModal()"    title="Credential vault">🔑 Vault</button>
-      <button class="bar-btn" onclick="openVpsModal()"      title="VPS connection settings">🖥 VPS</button>
-      <button class="bar-btn" onclick="openSettingsModal()" title="Claude API key and app settings">⚙️ Settings</button>
-      <button class="bar-btn bar-btn-terminals" id="terminals-toggle-btn" onclick="toggleTerminals()" title="Show/hide agent terminals">⊞ Terminals</button>
-      <span class="bar-spacer"></span>
-      <span class="bar-user" id="bar-user"></span>
-      <button class="bar-btn" onclick="doLogout()">Sign out</button>
-    </div>
+    </div><!-- /main-area -->
   </div>
 
   <!-- ── Vault modal ─────────────────────────────────────────────────────── -->

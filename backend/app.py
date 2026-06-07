@@ -435,6 +435,40 @@ async def skills_installed(user: User = Depends(get_current_user), db: AsyncSess
     return result
 
 
+@app.get("/api/suggestions")
+async def suggestions(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Capability-aware quick-start ideas, filtered by the user's known skills/facts."""
+    rows  = (await db.execute(select(MemoryFact).where(MemoryFact.user_id == user.id))).scalars().all()
+    blob  = " ".join((m.key + " " + m.value).lower() for m in rows)
+    def has(*kw): return any(k in blob for k in kw)
+
+    cards = [{
+        "icon": "🌐", "title": "Set up a website",
+        "prompt": "Help me set up a new website on my server. Walk me through it step by step, "
+                  "asking one question at a time (domain, pages, etc.).",
+    }]
+    if has("browser", "playwright", "can_browse", "chromium"):
+        cards.append({
+            "icon": "🔍", "title": "Research something online",
+            "prompt": "Use the agent to browse the web and research a topic for me. Ask me what to research."})
+    if has("email", "imap", "gmail", "outlook", "inbox"):
+        cards.append({
+            "icon": "📬", "title": "Check my emails",
+            "prompt": "Check my inbox and summarise what needs my attention."})
+    if has("deploy", "deployment", "ftp", "hostgator", "cpanel"):
+        cards.append({
+            "icon": "🚀", "title": "Deploy my website",
+            "prompt": "Help me deploy my website using my usual deployment flow. Confirm each step with me."})
+    cards.append({
+        "icon": "⏰", "title": "Schedule a recurring task",
+        "prompt": "I want to schedule a task to run automatically on a schedule (a cron job). "
+                  "Help me set it up step by step."})
+    cards.append({
+        "icon": "📊", "title": "Set up a daily report",
+        "prompt": "Help me set up an automated daily report. Ask me what it should contain and where to send it."})
+    return cards
+
+
 @app.post("/api/skills/restart-agent")
 async def restart_agent(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Restart the OpenClaw gateway so newly-installed skills are activated."""

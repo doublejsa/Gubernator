@@ -152,13 +152,11 @@ function applyTerminalsState(animate) {
     chat.classList.remove('terminals-hidden');
     vdiv.classList.remove('terminals-hidden');
     btn.classList.add('active');
-    btn.textContent = '✕ Terminals';
   } else {
     right.classList.add('terminals-hidden');
     chat.classList.add('terminals-hidden');
     vdiv.classList.add('terminals-hidden');
     btn.classList.remove('active');
-    btn.textContent = '⊞ Terminals';
   }
   // Reflow after CSS transition so xterm sizes correctly
   setTimeout(reflowTerminals, animate ? 320 : 0);
@@ -168,6 +166,45 @@ function toggleTerminals() {
   terminalsVisible = !terminalsVisible;
   localStorage.setItem('gov_terminals', terminalsVisible ? 'open' : 'closed');
   applyTerminalsState(true);
+}
+
+// ── Sidebar collapse + Ideas ──────────────────────────────────────────────────
+function applySidebarState() {
+  const collapsed = localStorage.getItem('gov_sidebar') === 'collapsed';
+  document.getElementById('sidebar').classList.toggle('collapsed', collapsed);
+}
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  const collapsed = sb.classList.toggle('collapsed');
+  localStorage.setItem('gov_sidebar', collapsed ? 'collapsed' : 'open');
+  setTimeout(reflowTerminals, 240);
+}
+
+async function loadIdeas() {
+  try {
+    const ideas = await (await fetch('/api/suggestions')).json();
+    const list  = document.getElementById('ideas-list');
+    list.innerHTML = ideas.map((it, i) => `
+      <button class="idea-card" onclick="runIdea(${i})" title="${esc(it.title)}">
+        <span class="idea-card-ico">${it.icon}</span>
+        <span class="idea-card-title">${esc(it.title)}</span>
+      </button>`).join('');
+    window._ideas = ideas;   // stash prompts for runIdea
+  } catch (_) {}
+}
+
+function runIdea(i) {
+  const idea = (window._ideas || [])[i];
+  if (!idea) return;
+  if (!chatWs || chatWs.readyState !== WebSocket.OPEN || sending) {
+    alert('Claude is busy or disconnected — try again in a moment.');
+    return;
+  }
+  lastUserMessage = idea.prompt;
+  addBubble('you', idea.prompt);
+  sending = true;
+  document.getElementById('chat-send').disabled = true;
+  chatWs.send(JSON.stringify({ type: 'user_message', content: idea.prompt }));
 }
 
 // ── Console collapse (Option B — chevron tab on divider) ──────────────────────
@@ -1164,7 +1201,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Set initial panel visibility and agent subtitle
   applyTerminalsState(false);
   applyConsoleState(false);
+  applySidebarState();
   updateAgentSubtitle();
+  loadIdeas();
 
   const tui   = initTerminal('tui-terminal',   '/ws/tui',   'tui');
   const shell = initTerminal('shell-terminal', '/ws/shell', 'shell');
