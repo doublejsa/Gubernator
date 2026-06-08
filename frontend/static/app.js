@@ -649,11 +649,35 @@ function addLoopBanner(count) {
   el.className = 'bubble loop-banner';
   el.innerHTML = `
     <div class="loop-title">🔁 Gubernator noticed this is looping${count ? ` (tried ~${count}×)` : ''}</div>
-    <div class="loop-body">The same approach keeps failing. Claude is switching strategy — for a
-      repeatable job like this, it'll try to build a <strong>reliable script</strong> that works
-      first-time, every time, instead of retrying by hand.</div>`;
+    <div class="loop-body">The same approach keeps failing. For a repeatable job like this, the fix is
+      to build a <strong>reliable script</strong> that works first-time, every time, instead of retrying by hand.</div>
+    <button class="retry-btn" onclick="buildTool()" style="margin-top:8px">🔧 Build the tool now</button>`;
   document.getElementById('chat-messages').appendChild(el);
   scrollChat();
+}
+
+function buildTool() {
+  if (!chatWs || chatWs.readyState !== WebSocket.OPEN || sending) {
+    alert('Claude is busy or disconnected — try again in a moment.');
+    return;
+  }
+  const prompt =
+    "Stop the current approach. Follow the 'build a tool when stuck' playbook to turn what we're "
+    + "working on into a reliable, repeatable tool:\n"
+    + "1. Run read-only commands to discover the specifics (paths, branch names, git config, where "
+    + "secrets live) and [REMEMBER] each fact.\n"
+    + "2. Set up any auth ONCE (e.g. bake the GitHub PAT into the git remote or use a credential "
+    + "helper) so it stops failing — never handle the token per-run.\n"
+    + "3. Write a single idempotent script via [VPS_WRITE] with clean JSON output, one sub-command "
+    + "per step.\n"
+    + "4. Wrap it in a thin SKILL.md, register it, restart the agent, and [REMEMBER] how to run it.\n"
+    + "Work through it one step at a time.";
+  lastUserMessage = prompt;
+  addBubble('you', '🔧 Build a reliable tool for this');
+  document.querySelectorAll('.loop-banner').forEach(el => el.remove());
+  sending = true;
+  document.getElementById('chat-send').disabled = true;
+  chatWs.send(JSON.stringify({ type: 'user_message', content: prompt }));
 }
 
 function toggleErrDetails(btn) {
