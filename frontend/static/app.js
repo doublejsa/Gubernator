@@ -426,9 +426,19 @@ function cancelClaude() {
   document.getElementById('claude-cancel-btn').style.display = 'none';
 }
 
+let pendingCheck = false;   // run a check once the current (stuck) turn unlocks
+
 function checkAgent() {
-  if (sending || !chatWs || chatWs.readyState !== WebSocket.OPEN) return;
-  // Remove any lingering awaiting prompt bubbles
+  if (!chatWs || chatWs.readyState !== WebSocket.OPEN) return;
+  if (sending) {
+    // Busy or stuck ("Agent is thinking" that won't clear) — interrupt whatever
+    // is running, then auto-run the check the moment the UI unlocks.
+    pendingCheck = true;
+    chatWs.send(JSON.stringify({ type: 'cancel_tui' }));
+    chatWs.send(JSON.stringify({ type: 'cancel_claude' }));
+    addBubble('status', '⛔ Stopping… will check the agent once it stops.');
+    return;
+  }
   document.querySelectorAll('.check-agent-prompt').forEach(el => el.remove());
   sending = true;
   document.getElementById('chat-send').disabled = true;
@@ -834,8 +844,10 @@ function initChat() {
         setActionButtonsDisabled(false);
         document.getElementById('chat-send').disabled = false;
         document.getElementById('chat-input').focus();
+        // A Check-agent request was queued while busy — run it now that we're unlocked
+        if (pendingCheck) { pendingCheck = false; setTimeout(checkAgent, 120); }
         // Claude said it's waiting on the agent — surface a manual check button
-        if (msg.awaiting_agent) addCheckAgentPrompt();
+        else if (msg.awaiting_agent) addCheckAgentPrompt();
         break;
       case 'stats':  updateClaudeStats(msg); break;
       case 'vps_output':
