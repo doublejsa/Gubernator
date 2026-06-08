@@ -442,8 +442,53 @@ function formatClaudeMessage(text) {
         (collapsed ? `<button class="code-toggle" onclick="toggleCode('${id}',this)">▾ ${lines.length} lines</button>` : '')+
         `</div><div class="code-wrap${collapsed?' code-collapsed':''}" id="${id}"><pre class="code-pre"><code>${esc(code)}</code></pre></div></div>`;
     }
-    return `<span class="msg-text">${esc(part)}</span>`;
+    return renderMarkdown(part);
   }).join('');
+}
+
+// Lightweight, safe markdown → HTML for non-code text (escape first, then format)
+function renderMarkdown(text) {
+  if (!text) return '';
+  const lines = text.split('\n');
+  let html = '', listType = null;   // 'ul' | 'ol' | null
+
+  const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
+  const inline = (s) => {
+    s = esc(s);
+    // inline code first so its contents aren't further formatted
+    s = s.replace(/`([^`]+)`/g, '<code class="md-code">$1</code>');
+    // links [text](url)
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    // bold then italic
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    s = s.replace(/\b_([^_\n]+)_\b/g, '<em>$1</em>');
+    return s;
+  };
+
+  for (let raw of lines) {
+    const line = raw.replace(/\s+$/, '');
+    let m;
+    if ((m = line.match(/^(#{1,4})\s+(.*)$/))) {           // headings
+      closeList();
+      const lvl = m[1].length;
+      html += `<div class="md-h md-h${lvl}">${inline(m[2])}</div>`;
+    } else if ((m = line.match(/^\s*[-*]\s+(.*)$/))) {      // bullet list
+      if (listType !== 'ul') { closeList(); html += '<ul class="md-list">'; listType = 'ul'; }
+      html += `<li>${inline(m[1])}</li>`;
+    } else if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) {     // numbered list
+      if (listType !== 'ol') { closeList(); html += '<ol class="md-list">'; listType = 'ol'; }
+      html += `<li>${inline(m[1])}</li>`;
+    } else if (line.trim() === '') {                        // blank line
+      closeList();
+      html += '<div class="md-gap"></div>';
+    } else {                                                // normal text
+      closeList();
+      html += `<div class="md-p">${inline(line)}</div>`;
+    }
+  }
+  closeList();
+  return `<span class="msg-text md">${html}</span>`;
 }
 function toggleCode(id, btn) {
   const w = document.getElementById(id); if (!w) return;
