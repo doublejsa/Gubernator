@@ -8,7 +8,15 @@
   <link rel="stylesheet" href="/static/style.css"/>
 </head>
 <body>
-  <div class="app" id="app">
+  <div class="app" id="app" data-mview="chat">
+
+    <!-- ── Mobile top bar (hidden on desktop) ────────────────────────────── -->
+    <div class="mobile-topbar">
+      <button class="mobile-hamburger" onclick="toggleDrawer()" aria-label="Menu">☰</button>
+      <span class="mobile-title">⚙️ Gubernator</span>
+      <span class="agent-status-pill" id="mobile-status-pill" data-status="ready">🟢</span>
+    </div>
+    <div class="drawer-backdrop" id="drawer-backdrop" onclick="closeDrawer()"></div>
 
     <!-- ── Left sidebar (ChatGPT-style) ──────────────────────────────────── -->
     <aside class="sidebar" id="sidebar">
@@ -130,6 +138,14 @@
       </div>
     </div>
     </div><!-- /main-area -->
+
+    <!-- ── Mobile bottom tab bar (hidden on desktop) ─────────────────────── -->
+    <nav class="mobile-tabs">
+      <button class="mtab active" data-mview="chat"     onclick="switchMobileView('chat')">    <span class="mtab-ico">💬</span><span class="mtab-lbl">Chat</span></button>
+      <button class="mtab"        data-mview="activity" onclick="switchMobileView('activity')"><span class="mtab-ico">📡</span><span class="mtab-lbl">Activity</span></button>
+      <button class="mtab"        data-mview="agent"    onclick="switchMobileView('agent')">   <span class="mtab-ico">🦞</span><span class="mtab-lbl">Agent</span></button>
+      <button class="mtab"        data-mview="console"  onclick="switchMobileView('console')"> <span class="mtab-ico">💻</span><span class="mtab-lbl">Console</span></button>
+    </nav>
   </div>
 
   <!-- ── Vault modal ─────────────────────────────────────────────────────── -->

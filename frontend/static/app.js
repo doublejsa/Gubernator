@@ -177,6 +177,30 @@ function toggleSidebar() {
   setTimeout(reflowTerminals, 240);
 }
 
+// ── Mobile: drawer + bottom-tab view switching ────────────────────────────────
+function isMobile() { return window.matchMedia('(max-width: 768px)').matches; }
+
+function openDrawer()  {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('drawer-backdrop').classList.add('open');
+}
+function closeDrawer() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('drawer-backdrop').classList.remove('open');
+}
+function toggleDrawer() {
+  document.getElementById('sidebar').classList.contains('open') ? closeDrawer() : openDrawer();
+}
+
+function switchMobileView(view) {
+  document.getElementById('app').dataset.mview = view;
+  document.querySelectorAll('.mtab').forEach(t =>
+    t.classList.toggle('active', t.dataset.mview === view));
+  closeDrawer();
+  // Terminals need a fit() once their panel becomes visible
+  if (view === 'agent' || view === 'console') setTimeout(reflowTerminals, 60);
+}
+
 async function loadIdeas() {
   try {
     const ideas = await (await fetch('/api/suggestions')).json();
@@ -283,11 +307,12 @@ function toggleConsole() {
 const STATUS_EMOJI = { ready: '🟢', thinking: '🟡', browsing: '🔵', needs_input: '🔴' };
 
 function updateAgentStatus(code, label) {
-  const pill = document.getElementById('agent-status-pill');
-  if (!pill) return;
-  pill.dataset.status = code || 'ready';
   const emoji = STATUS_EMOJI[code] || '🟢';
-  pill.textContent = `${emoji} ${label || 'Agent is ready'}`;
+  const pill = document.getElementById('agent-status-pill');
+  if (pill) { pill.dataset.status = code || 'ready'; pill.textContent = `${emoji} ${label || 'Agent is ready'}`; }
+  // Mirror to the mobile top-bar pill (icon only)
+  const mpill = document.getElementById('mobile-status-pill');
+  if (mpill) { mpill.dataset.status = code || 'ready'; mpill.textContent = emoji; }
 }
 
 // ── Agent subtitle ────────────────────────────────────────────────────────────
@@ -862,7 +887,7 @@ function initChat() {
 }
 
 // ── Modal helpers ─────────────────────────────────────────────────────────────
-function openModal(id)  { document.getElementById(id).style.display = 'flex'; }
+function openModal(id)  { document.getElementById(id).style.display = 'flex'; if (typeof closeDrawer === 'function') closeDrawer(); }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 function closeModalOnBg(e, id) { if (e.target === document.getElementById(id)) closeModal(id); }
 

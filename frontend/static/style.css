@@ -756,3 +756,82 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
   margin-bottom: 24px;
 }
 .ob-tip strong { color: #a1efa1; }
+
+/* ── Mobile chrome (hidden on desktop) ─────────────────────────────────────── */
+.mobile-topbar, .mobile-tabs, .drawer-backdrop { display: none; }
+
+@media (max-width: 768px) {
+  /* Top bar */
+  .mobile-topbar {
+    display: flex; align-items: center; gap: 10px;
+    height: 48px; flex-shrink: 0; padding: 0 12px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+  }
+  .mobile-hamburger { background: none; border: none; color: var(--text); font-size: 20px; cursor: pointer; padding: 4px 6px; }
+  .mobile-title { font-size: 15px; font-weight: 700; flex: 1; letter-spacing: -0.3px; }
+
+  /* App becomes a single column under the fixed bars */
+  .app { flex-direction: column; }
+  .main-area { padding-top: 48px; padding-bottom: 56px; height: 100%; }
+  .app-columns { display: block; height: 100%; }
+
+  /* Sidebar → off-canvas drawer */
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 80;
+    width: 78%; max-width: 300px;
+    transform: translateX(-100%); transition: transform 0.25s ease;
+    border-right: 1px solid var(--border);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar.collapsed { width: 78%; }          /* ignore desktop rail on mobile */
+  .sidebar.collapsed .nav-label,
+  .sidebar.collapsed .sidebar-logo,
+  .sidebar.collapsed .sidebar-ideas,
+  .sidebar.collapsed .sidebar-user { display: revert; }
+  .sidebar-toggle { display: none; }          /* hamburger handles it on mobile */
+
+  .drawer-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 70;
+    background: rgba(0,0,0,0.55); opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+
+  /* Single-view switching — show only the active panel, full screen */
+  #col-chat, #whats-happening, #right-panel {
+    display: none !important; width: 100% !important; max-width: 100% !important; height: 100%;
+  }
+  .v-divider, .h-divider, .console-tab { display: none !important; }
+  #right-panel { flex-direction: column; }
+  #col-tui, #col-shell { height: 100%; flex: 1 1 auto !important; }
+
+  .app[data-mview="chat"]     #col-chat        { display: flex !important; }
+  .app[data-mview="activity"] #whats-happening { display: flex !important; }
+  .app[data-mview="agent"]    #right-panel     { display: flex !important; }
+  .app[data-mview="agent"]    #col-tui         { display: flex !important; }
+  .app[data-mview="agent"]    #col-shell       { display: none !important; }
+  .app[data-mview="console"]  #right-panel     { display: flex !important; }
+  .app[data-mview="console"]  #col-shell       { display: flex !important; }
+  .app[data-mview="console"]  #col-tui         { display: none !important; }
+
+  /* Larger terminal text + scrollable on small screens */
+  .terminal-wrap { padding: 2px; }
+  .terminal-wrap::after { display: none; }
+
+  /* Bottom tab bar */
+  .mobile-tabs {
+    display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 60;
+    height: 56px; background: var(--surface); border-top: 1px solid var(--border);
+  }
+  .mtab {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    background: none; border: none; color: var(--dim); cursor: pointer; font-size: 10px;
+    padding: 6px 0;
+  }
+  .mtab-ico { font-size: 19px; line-height: 1; }
+  .mtab.active { color: var(--accent); }
+
+  /* Modals fill more of the screen on mobile */
+  .modal { width: 94vw; max-height: 86vh; }
+}
