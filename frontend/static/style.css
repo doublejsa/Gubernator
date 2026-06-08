@@ -798,13 +798,19 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
   }
   .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
 
-  /* Single-view switching — show only the active panel, full screen */
+  /* Single-view switching — show only the active panel, full screen.
+     Override every desktop toggle state (terminals-hidden / console-hidden /
+     collapsed) so a shown panel always has real width + height for xterm to fit. */
   #col-chat, #whats-happening, #right-panel {
-    display: none !important; width: 100% !important; max-width: 100% !important; height: 100%;
+    display: none !important; width: 100% !important; max-width: 100% !important;
+    height: 100%; opacity: 1 !important; flex: 1 1 auto !important;
   }
   .v-divider, .h-divider, .console-tab { display: none !important; }
   #right-panel { flex-direction: column; }
-  #col-tui, #col-shell { height: 100%; flex: 1 1 auto !important; }
+  #col-tui, #col-shell,
+  #col-tui.collapsed, #col-shell.collapsed {
+    height: 100% !important; min-height: 0 !important; flex: 1 1 auto !important; opacity: 1 !important;
+  }
 
   .app[data-mview="chat"]     #col-chat        { display: flex !important; }
   .app[data-mview="activity"] #whats-happening { display: flex !important; }

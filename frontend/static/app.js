@@ -197,8 +197,15 @@ function switchMobileView(view) {
   document.querySelectorAll('.mtab').forEach(t =>
     t.classList.toggle('active', t.dataset.mview === view));
   closeDrawer();
-  // Terminals need a fit() once their panel becomes visible
-  if (view === 'agent' || view === 'console') setTimeout(reflowTerminals, 60);
+  // A terminal panel that was display:none has no measurable size; fit it a
+  // couple of times once it's visible and laid out so xterm renders.
+  if (view === 'agent' || view === 'console') {
+    const fit = view === 'agent' ? tuiFit : shellFit;
+    [80, 250, 500].forEach(d => setTimeout(() => {
+      try { fit && fit.fit(); } catch (_) {}
+      reflowTerminals();
+    }, d));
+  }
 }
 
 async function loadIdeas() {
