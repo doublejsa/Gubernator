@@ -7,19 +7,34 @@ Each user gets a randomly generated Fernet key stored encrypted in the DB
   - Moving to a KMS later = swap key storage only
   - Web SaaS multi-tenancy = each user's vault is isolated
 """
-import os, base64
+import base64
 from cryptography.fernet import Fernet, MultiFernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
-from backend.config import VAULT_MASTER_KEY
+from backend.config import VAULT_MASTER_KEY, VAULT_MASTER_KEY_OLD, IS_PRODUCTION
 
 
-def _master_fernet() -> Fernet:
-    """Derive a stable Fernet key from the master key string."""
-    key_bytes = VAULT_MASTER_KEY.encode() if VAULT_MASTER_KEY else b"dev-only-insecure-key"
+def _derive(master: str) -> bytes:
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b"gubernator-v1", iterations=100_000)
-    raw = base64.urlsafe_b64encode(kdf.derive(key_bytes))
-    return Fernet(raw)
+    return base64.urlsafe_b64encode(kdf.derive(master.encode()))
+
+
+def _master_key_or_die() -> str:
+    if VAULT_MASTER_KEY:
+        return VAULT_MASTER_KEY
+    if IS_PRODUCTION:
+        raise RuntimeError("VAULT_MASTER_KEY is not set — refusing to encrypt secrets insecurely.")
+    # Dev only: a clearly-labelled fallback so local dev works without a key.
+    return "dev-only-insecure-key-do-not-use-in-prod"
+
+
+def _master_fernet() -> MultiFernet:
+    """MultiFernet so decryption accepts the current OR previous master key
+    (during rotation). Encryption always uses the current key (first in list)."""
+    keys = [Fernet(_derive(_master_key_or_die()))]
+    if VAULT_MASTER_KEY_OLD:
+        keys.append(Fernet(_derive(VAULT_MASTER_KEY_OLD)))
+    return MultiFernet(keys)
 
 
 def generate_vault_key() -> str:
@@ -28,12 +43,12 @@ def generate_vault_key() -> str:
 
 
 def encrypt_vault_key(raw_key: str) -> str:
-    """Encrypt a user's vault key with the master key for DB storage."""
+    """Encrypt a user's vault key with the current master key for DB storage."""
     return _master_fernet().encrypt(raw_key.encode()).decode()
 
 
 def decrypt_vault_key(enc_key: str) -> str:
-    """Decrypt a user's vault key from DB storage."""
+    """Decrypt a user's vault key (accepts current or old master during rotation)."""
     return _master_fernet().decrypt(enc_key.encode()).decode()
 
 

@@ -56,6 +56,8 @@ async def no_cache_static(request, call_next):
 # ── DB init ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup():
+    from backend.config import assert_production_secrets
+    assert_production_secrets()   # fail fast on weak/missing secrets in production
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -162,9 +164,10 @@ async def login(body: LoginIn, response: Response, db: AsyncSession = Depends(ge
         raise HTTPException(403, "Please verify your email first. Check your inbox for the confirmation link.")
     token = create_access_token(str(user.id))
     # Set httpOnly cookie (web) + return token (API clients)
+    from backend.config import COOKIE_SECURE
     response.set_cookie(
         key="gubernator_session", value=token,
-        httponly=True, samesite="lax", secure=False,  # secure=True in production
+        httponly=True, samesite="lax", secure=COOKIE_SECURE,
         max_age=86400
     )
     return {"access_token": token, "token_type": "bearer"}
