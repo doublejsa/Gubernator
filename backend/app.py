@@ -73,6 +73,19 @@ async def root():
 async def app_page():
     return FileResponse(FRONTEND_DIR / "app.html")
 
+# ── Legal pages ───────────────────────────────────────────────────────────────
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_page():
+    return FileResponse(FRONTEND_DIR / "legal" / "terms.html")
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page():
+    return FileResponse(FRONTEND_DIR / "legal" / "privacy.html")
+
+@app.get("/acceptable-use", response_class=HTMLResponse)
+async def aup_page():
+    return FileResponse(FRONTEND_DIR / "legal" / "acceptable-use.html")
+
 
 # ── OpenClaw stats (proxied from VPS for the TUI header badges) ───────────────
 @app.get("/api/openclaw-stats")

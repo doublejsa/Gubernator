@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Privacy Policy — Gubernator</title>
+  <link rel="stylesheet" href="/static/legal.css"/>
+</head>
+<body>
+  <div class="legal-wrap">
+    <div class="legal-head"><span>⚙️</span><span class="legal-logo">Gubernator</span></div>
+    <div class="legal-updated">Last updated: 9 June 2026</div>
+
+    <div class="legal-draft">⚠️ <strong>Draft.</strong> This document is a working draft and is
+      not legal advice. Have it reviewed by a qualified lawyer (and check POPIA/GDPR specifics)
+      before relying on it.</div>
+
+    <h1>Privacy Policy</h1>
+    <p>This policy explains what Gubernator (“we”, operated by
+      <strong>[Company / sole proprietor name]</strong>) collects, why, and your rights. It is written
+      with South Africa’s POPIA and the EU/UK GDPR in mind.</p>
+
+    <h2>1. What we collect</h2>
+    <ul>
+      <li><strong>Account:</strong> your email address and a securely hashed password (we never store
+        your password in plain text).</li>
+      <li><strong>Server connections:</strong> the hostname, port, and username of servers you connect,
+        and their password/credentials — <strong>stored encrypted</strong> (see Security).</li>
+      <li><strong>Credential vault:</strong> API keys, tokens and secrets you choose to store —
+        <strong>stored encrypted</strong>.</li>
+      <li><strong>Conversations &amp; memory:</strong> your chat with the assistant, the agent’s output,
+        durable “memory” facts, and a task history.</li>
+      <li><strong>Operational logs:</strong> limited technical logs needed to run and secure the Service.</li>
+    </ul>
+
+    <h2>2. How we use it</h2>
+    <p>Solely to provide the Service: to connect to your servers on your instruction, run the assistant
+      and agent, remember context across sessions, process billing, secure the Service, and contact you
+      about your account (e.g. verification, password reset, important notices).</p>
+
+    <h2>3. Sharing with third parties</h2>
+    <ul>
+      <li><strong>Anthropic:</strong> to generate responses, your messages and relevant context (which
+        can include server output you ask about) are sent to Anthropic’s Claude API under your own API key.</li>
+      <li><strong>Payment processor (PayPal):</strong> handles your payment; we do not store card details.</li>
+      <li><strong>Email provider:</strong> used to send verification and password-reset emails.</li>
+      <li>We do <strong>not</strong> sell your data or use it for advertising.</li>
+    </ul>
+
+    <h2>4. Security</h2>
+    <ul>
+      <li>Server credentials, vault secrets, and API keys are encrypted at rest using per-user keys
+        (envelope encryption); a database copy alone cannot decrypt them without the separately-held master key.</li>
+      <li>Passwords are hashed with bcrypt. Access requires authentication; sessions use signed tokens.</li>
+      <li>No security is perfect. You are responsible for keeping your own password and credentials safe.</li>
+    </ul>
+
+    <h2>5. Retention &amp; deletion</h2>
+    <p>We keep your data while your account is active. You can <strong>delete your account at any time</strong>
+      from Settings, which removes your stored credentials, server connections, vault, memory, tasks, and
+      conversation history. Some minimal records may be retained where required by law (e.g. billing records).</p>
+
+    <h2>6. Your rights</h2>
+    <p>Subject to applicable law, you may request access to, correction of, or deletion of your personal
+      information, and object to certain processing. Contact us at
+      <a href="mailto:privacy@gubernator.co">privacy@gubernator.co</a>.</p>
+
+    <h2>7. Cookies</h2>
+    <p>We use a single essential session cookie to keep you signed in. We do not use advertising or
+      third-party tracking cookies.</p>
+
+    <h2>8. International transfers</h2>
+    <p>Third parties we use (e.g. Anthropic, PayPal) may process data outside your country. By using the
+      Service you acknowledge this transfer where necessary to provide it.</p>
+
+    <h2>9. Changes</h2>
+    <p>We may update this policy; material changes will be notified by email or in-app.</p>
+
+    <h2>10. Contact</h2>
+    <p>Data queries: <a href="mailto:privacy@gubernator.co">privacy@gubernator.co</a>.
+      Responsible party / contact: <strong>[Company / sole proprietor name and address]</strong>.</p>
+
+    <div class="legal-nav">
+      <a href="/terms">Terms of Service</a>
+      <a href="/acceptable-use">Acceptable Use Policy</a>
+      <a href="/">← Back to sign in</a>
+    </div>
+    <div class="legal-foot">© 2026 Gubernator. All rights reserved.</div>
+  </div>
+</body>
+</html>

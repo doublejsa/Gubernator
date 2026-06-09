@@ -61,6 +61,10 @@ body {
   line-height: 1.5;
 }
 
+.login-legal { text-align: center; margin-top: 20px; font-size: 11px; color: #6e7681; }
+.login-legal a { color: #8b949e; text-decoration: none; }
+.login-legal a:hover { color: #58a6ff; }
+
 .login-links { text-align: right; margin-top: 8px; }
 .login-links a { color: #8b949e; font-size: 12px; text-decoration: none; }
 .login-links a:hover { color: #58a6ff; }

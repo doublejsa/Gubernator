@@ -19,6 +19,12 @@
       <div id="login-info"  class="login-info"  style="display:none"></div>
 
       <div id="form-host"></div>
+
+      <div class="login-legal">
+        <a href="/terms" target="_blank">Terms</a> ·
+        <a href="/privacy" target="_blank">Privacy</a> ·
+        <a href="/acceptable-use" target="_blank">Acceptable Use</a>
+      </div>
     </div>
   </div>
 
@@ -62,6 +68,10 @@
           <input type="password" id="password" autocomplete="new-password" required/>
           <button type="submit" id="reg-btn">Create account</button>
         </form>
+        <p style="font-size:11px;color:#8b949e;margin-top:10px;line-height:1.5">
+          By creating an account you agree to our
+          <a href="/terms" target="_blank">Terms</a> and
+          <a href="/privacy" target="_blank">Privacy Policy</a>.</p>
         <div class="login-register">Already have an account? <a href="#" onclick="showLogin();return false">Sign in</a></div>`;
     }
 
