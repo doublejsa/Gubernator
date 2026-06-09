@@ -16,87 +16,134 @@
       <p class="login-sub">AI Agent Control Panel</p>
 
       <div id="login-error" class="login-error" style="display:none"></div>
+      <div id="login-info"  class="login-info"  style="display:none"></div>
 
-      <form id="login-form" onsubmit="handleLogin(event)">
-        <label>Email</label>
-        <input type="email" id="email" autocomplete="email" required/>
-        <label>Password</label>
-        <input type="password" id="password" autocomplete="current-password" required/>
-        <button type="submit" id="login-btn">Sign in</button>
-      </form>
-
-      <div class="login-register">
-        No account? <a href="#" onclick="showRegister()">Create one</a>
-      </div>
+      <div id="form-host"></div>
     </div>
   </div>
 
   <script>
-    // Redirect if already logged in
-    fetch('/api/auth/me').then(r => { if (r.ok) location.href = '/app'; });
+    const $ = (id) => document.getElementById(id);
+    const err  = (m) => { const e=$('login-error'); e.textContent=m; e.style.display=m?'':'none'; if(m)$('login-info').style.display='none'; };
+    const info = (m) => { const e=$('login-info');  e.textContent=m; e.style.display=m?'':'none'; if(m)$('login-error').style.display='none'; };
 
-    async function handleLogin(e) {
-      e.preventDefault();
-      const btn = document.getElementById('login-btn');
-      btn.disabled = true; btn.textContent = 'Signing in…';
-      const err = document.getElementById('login-error');
-      err.style.display = 'none';
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            email:    document.getElementById('email').value,
-            password: document.getElementById('password').value,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          localStorage.setItem('gov_token', data.access_token);
-          location.href = '/app';
-        } else {
-          const data = await res.json();
-          err.textContent = data.detail || 'Login failed';
-          err.style.display = '';
-          btn.disabled = false; btn.textContent = 'Sign in';
-        }
-      } catch (_) {
-        err.textContent = 'Could not reach server';
-        err.style.display = '';
-        btn.disabled = false; btn.textContent = 'Sign in';
-      }
+    const params = new URLSearchParams(location.search);
+
+    async function api(path, body) {
+      const res = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      let data = {}; try { data = await res.json(); } catch(_) {}
+      return { ok: res.ok, data };
+    }
+
+    // ── Views ──────────────────────────────────────────────────────────────
+    function showLogin() {
+      err('');
+      $('form-host').innerHTML = `
+        <form onsubmit="doLogin(event)">
+          <label>Email</label>
+          <input type="email" id="email" autocomplete="email" required/>
+          <label>Password</label>
+          <input type="password" id="password" autocomplete="current-password" required/>
+          <button type="submit" id="login-btn">Sign in</button>
+        </form>
+        <div class="login-links">
+          <a href="#" onclick="showForgot();return false">Forgot password?</a>
+        </div>
+        <div class="login-register">No account? <a href="#" onclick="showRegister();return false">Create one</a></div>`;
     }
 
     function showRegister() {
-      const form = document.getElementById('login-form');
-      form.innerHTML = `
-        <label>Email</label>
-        <input type="email" id="email" required/>
-        <label>Password</label>
-        <input type="password" id="password" required/>
-        <button type="submit">Create account</button>
-      `;
-      form.onsubmit = async (e) => {
-        e.preventDefault();
-        const res = await fetch('/api/auth/register', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            email:    document.getElementById('email').value,
-            password: document.getElementById('password').value,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          localStorage.setItem('gov_token', data.access_token);
-          location.href = '/app';
-        } else {
-          const data = await res.json();
-          const err = document.getElementById('login-error');
-          err.textContent = data.detail || 'Registration failed';
-          err.style.display = '';
-        }
-      };
+      err('');
+      $('form-host').innerHTML = `
+        <form onsubmit="doRegister(event)">
+          <label>Email</label>
+          <input type="email" id="email" autocomplete="email" required/>
+          <label>Password (min 8 characters)</label>
+          <input type="password" id="password" autocomplete="new-password" required/>
+          <button type="submit" id="reg-btn">Create account</button>
+        </form>
+        <div class="login-register">Already have an account? <a href="#" onclick="showLogin();return false">Sign in</a></div>`;
+    }
+
+    function showForgot() {
+      err('');
+      $('form-host').innerHTML = `
+        <form onsubmit="doForgot(event)">
+          <label>Email</label>
+          <input type="email" id="email" autocomplete="email" required/>
+          <button type="submit">Send reset link</button>
+        </form>
+        <div class="login-register"><a href="#" onclick="showLogin();return false">← Back to sign in</a></div>`;
+    }
+
+    function showReset(token) {
+      err('');
+      $('form-host').innerHTML = `
+        <form onsubmit="doReset(event)">
+          <label>New password (min 8 characters)</label>
+          <input type="password" id="password" autocomplete="new-password" required/>
+          <button type="submit">Set new password</button>
+        </form>`;
+      window._resetToken = token;
+    }
+
+    // ── Actions ────────────────────────────────────────────────────────────
+    async function doLogin(e) {
+      e.preventDefault();
+      const btn = $('login-btn'); btn.disabled = true; btn.textContent = 'Signing in…';
+      const email = $('email').value, pw = $('password').value;
+      const { ok, data } = await api('/api/auth/login', { email, password: pw });
+      if (ok) { localStorage.setItem('gov_token', data.access_token); location.href = '/app'; return; }
+      btn.disabled = false; btn.textContent = 'Sign in';
+      if (data.detail && /verify your email/i.test(data.detail)) {
+        err(data.detail);
+        const e2 = $('login-error');
+        e2.innerHTML += ` <a href="#" onclick="resend('${email.replace(/'/g,"")}');return false">Resend link</a>`;
+      } else {
+        err(data.detail || 'Login failed');
+      }
+    }
+
+    async function doRegister(e) {
+      e.preventDefault();
+      const btn = $('reg-btn'); btn.disabled = true; btn.textContent = 'Creating…';
+      const { ok, data } = await api('/api/auth/register', { email: $('email').value, password: $('password').value });
+      btn.disabled = false; btn.textContent = 'Create account';
+      if (ok) {
+        $('form-host').innerHTML = `<div class="login-register">
+          <a href="#" onclick="showLogin();return false">← Back to sign in</a></div>`;
+        info('✓ Account created! Check your email for a confirmation link to activate it.');
+      } else {
+        err(data.detail || 'Registration failed');
+      }
+    }
+
+    async function doForgot(e) {
+      e.preventDefault();
+      await api('/api/auth/forgot-password', { email: $('email').value });
+      $('form-host').innerHTML = `<div class="login-register"><a href="#" onclick="showLogin();return false">← Back to sign in</a></div>`;
+      info("If that email has an account, we've sent a reset link. Check your inbox.");
+    }
+
+    async function doReset(e) {
+      e.preventDefault();
+      const { ok, data } = await api('/api/auth/reset-password', { token: window._resetToken, new_password: $('password').value });
+      if (ok) { history.replaceState({}, '', '/'); showLogin(); info('✓ Password reset. You can sign in now.'); }
+      else err(data.detail || 'Could not reset password.');
+    }
+
+    async function resend(email) {
+      await api('/api/auth/resend-verification', { email });
+      info('Confirmation link resent — check your inbox.');
+    }
+
+    // ── Boot ───────────────────────────────────────────────────────────────
+    if (params.get('reset')) {
+      showReset(params.get('reset'));
+    } else {
+      fetch('/api/auth/me').then(r => { if (r.ok) location.href = '/app'; });
+      showLogin();
+      if (params.get('verified')) { info('✓ Email confirmed! You can sign in now.'); history.replaceState({}, '', '/'); }
     }
   </script>
 </body>

@@ -20,3 +20,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440
 # Per-user vault keys are stored in the DB (encrypted with this master key).
 # In production: use a proper KMS or at minimum a strong random value.
 VAULT_MASTER_KEY = os.getenv("VAULT_MASTER_KEY", "")
+
+# ── Email (SMTP) ──────────────────────────────────────────────────────────────
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))        # 465 SSL, or 587 STARTTLS
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or "noreply@gubernator.co")
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")  # for links in emails

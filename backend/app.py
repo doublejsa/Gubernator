@@ -8,7 +8,7 @@ from pathlib import Path
 import paramiko
 from fastapi import FastAPI, Depends, HTTPException, Response, WebSocket, WebSocketDisconnect, status, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -28,6 +28,7 @@ from backend.vault import (
 )
 from backend.terminal import PTYSession
 from backend.ws_handlers import pty_ws_handler, chat_ws_handler
+from backend.email_sender import send_verification, send_password_reset, read_token
 
 BASE_DIR     = Path(__file__).parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -142,11 +143,13 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
         email         = body.email,
         password_hash = hash_password(body.password),
         vault_key_enc = vault_key_enc,
+        email_verified = False,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return {"id": str(user.id), "email": user.email}
+    await send_verification(user.email, str(user.id))
+    return {"id": str(user.id), "email": user.email, "verify_required": True}
 
 @app.post("/api/auth/login")
 async def login(body: LoginIn, response: Response, db: AsyncSession = Depends(get_db)):
@@ -155,6 +158,8 @@ async def login(body: LoginIn, response: Response, db: AsyncSession = Depends(ge
     user   = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(401, "Invalid credentials")
+    if not user.email_verified:
+        raise HTTPException(403, "Please verify your email first. Check your inbox for the confirmation link.")
     token = create_access_token(str(user.id))
     # Set httpOnly cookie (web) + return token (API clients)
     response.set_cookie(
@@ -172,6 +177,58 @@ async def logout(response: Response):
 @app.get("/api/auth/me")
 async def me(user: User = Depends(get_current_user)):
     return {"id": str(user.id), "email": user.email}
+
+class EmailIn(BaseModel):
+    email: str
+
+class ResetPwIn(BaseModel):
+    token: str
+    new_password: str
+
+@app.get("/api/auth/verify")
+async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+    uid = read_token(token, "verify")
+    if not uid:
+        return HTMLResponse("<h3>This confirmation link is invalid or has expired.</h3>"
+                            "<p><a href='/'>Back to sign in</a></p>", status_code=400)
+    user = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
+    if not user:
+        return HTMLResponse("<h3>Account not found.</h3>", status_code=404)
+    if not user.email_verified:
+        user.email_verified = True
+        await db.commit()
+    return RedirectResponse(url="/?verified=1", status_code=303)
+
+@app.post("/api/auth/resend-verification")
+async def resend_verification(body: EmailIn, db: AsyncSession = Depends(get_db)):
+    _rate_limit(f"resend:{body.email.lower()}", max_attempts=3, window_secs=300)
+    user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if user and not user.email_verified:
+        await send_verification(user.email, str(user.id))
+    return {"ok": True}   # don't leak whether the email exists
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(body: EmailIn, db: AsyncSession = Depends(get_db)):
+    _rate_limit(f"forgot:{body.email.lower()}", max_attempts=3, window_secs=300)
+    user = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if user:
+        await send_password_reset(user.email, str(user.id))
+    return {"ok": True}   # always ok — don't reveal which emails exist
+
+@app.post("/api/auth/reset-password")
+async def reset_password(body: ResetPwIn, db: AsyncSession = Depends(get_db)):
+    uid = read_token(body.token, "reset")
+    if not uid:
+        raise HTTPException(400, "This reset link is invalid or has expired.")
+    if not _pw_ok(body.new_password):
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    user = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "Account not found.")
+    user.password_hash  = hash_password(body.new_password)
+    user.email_verified = True   # resetting via emailed link also proves email ownership
+    await db.commit()
+    return {"ok": True}
 
 @app.post("/api/auth/change-password")
 async def change_password(body: ChangePwIn, response: Response,
