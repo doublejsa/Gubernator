@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, delete as _sqldelete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import SECRET_KEY, ALGORITHM
@@ -94,6 +94,25 @@ async def openclaw_stats(user: User = Depends(get_current_user)):
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
+import time as _time
+from collections import defaultdict, deque as _deque
+
+# Simple in-memory rate limiter: key → timestamps of recent attempts
+_rate_hits: dict[str, _deque] = defaultdict(_deque)
+
+def _rate_limit(key: str, max_attempts: int, window_secs: int):
+    """Raise 429 if `key` exceeded max_attempts within window_secs."""
+    now = _time.time()
+    hits = _rate_hits[key]
+    while hits and hits[0] < now - window_secs:
+        hits.popleft()
+    if len(hits) >= max_attempts:
+        raise HTTPException(429, "Too many attempts — please wait a minute and try again.")
+    hits.append(now)
+
+def _pw_ok(pw: str) -> bool:
+    return isinstance(pw, str) and len(pw) >= 8
+
 class RegisterIn(BaseModel):
     email: str
     password: str
@@ -102,8 +121,18 @@ class LoginIn(BaseModel):
     email: str
     password: str
 
+class ChangePwIn(BaseModel):
+    current_password: str
+    new_password: str
+
+class DeleteAccountIn(BaseModel):
+    password: str
+
 @app.post("/api/auth/register")
 async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
+    _rate_limit(f"register:{body.email.lower()}", max_attempts=5, window_secs=300)
+    if not _pw_ok(body.password):
+        raise HTTPException(400, "Password must be at least 8 characters.")
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(400, "Email already registered")
@@ -121,6 +150,7 @@ async def register(body: RegisterIn, db: AsyncSession = Depends(get_db)):
 
 @app.post("/api/auth/login")
 async def login(body: LoginIn, response: Response, db: AsyncSession = Depends(get_db)):
+    _rate_limit(f"login:{body.email.lower()}", max_attempts=8, window_secs=300)
     result = await db.execute(select(User).where(User.email == body.email))
     user   = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.password_hash):
@@ -142,6 +172,35 @@ async def logout(response: Response):
 @app.get("/api/auth/me")
 async def me(user: User = Depends(get_current_user)):
     return {"id": str(user.id), "email": user.email}
+
+@app.post("/api/auth/change-password")
+async def change_password(body: ChangePwIn, response: Response,
+                          user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(400, "Current password is incorrect.")
+    if not _pw_ok(body.new_password):
+        raise HTTPException(400, "New password must be at least 8 characters.")
+    user.password_hash = hash_password(body.new_password)
+    await db.commit()
+    # Rotate the session token after a password change
+    response.delete_cookie("gubernator_session")
+    return {"ok": True}
+
+@app.delete("/api/auth/account")
+async def delete_account(body: DeleteAccountIn, response: Response,
+                         user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(400, "Password is incorrect.")
+    # Tear down any live sessions, then explicitly delete all the user's rows
+    # (explicit deletes are reliable under async; ORM lazy cascade is not).
+    _user_sessions.pop(str(user.id), None)
+    uid = user.id
+    for model in (VpsConnection, Credential, ChatSession, Task, MemoryFact):
+        await db.execute(_sqldelete(model).where(model.user_id == uid))
+    await db.execute(_sqldelete(User).where(User.id == uid))
+    await db.commit()
+    response.delete_cookie("gubernator_session")
+    return {"ok": True}
 
 
 # ── VPS Connections ───────────────────────────────────────────────────────────

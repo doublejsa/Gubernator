@@ -343,6 +343,30 @@
           </div>
         </div>
 
+        <!-- Account -->
+        <div style="margin-bottom:24px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">🔒 Account</div>
+          <div class="cred-form">
+            <div><label>Current password</label>
+              <input id="acc-cur" type="password" placeholder="••••••••" autocomplete="current-password"/></div>
+            <div><label>New password (min 8 chars)</label>
+              <input id="acc-new" type="password" placeholder="••••••••" autocomplete="new-password"/></div>
+            <div id="acc-status" style="font-size:12px;color:var(--dim)"></div>
+            <div class="cred-form-actions">
+              <button class="btn-primary" onclick="changePassword()">Change password</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Danger zone -->
+        <div style="border-top:1px solid var(--border);padding-top:16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--red)">⚠️ Delete account</div>
+          <p style="font-size:12px;color:var(--dim);margin-bottom:10px">
+            Permanently deletes your account, saved credentials, VPS connections, memory and history. This cannot be undone.
+          </p>
+          <button class="cred-btn danger" onclick="deleteAccount()">Delete my account…</button>
+        </div>
+
       </div>
     </div>
   </div>

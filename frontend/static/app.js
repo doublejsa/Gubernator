@@ -1419,6 +1419,48 @@ async function saveApiKey() {
   }
 }
 
+async function changePassword() {
+  const cur = document.getElementById('acc-cur').value;
+  const nw  = document.getElementById('acc-new').value;
+  const st  = document.getElementById('acc-status');
+  st.style.color = 'var(--dim)';
+  if (!cur || !nw) { st.textContent = 'Enter both fields.'; st.style.color = 'var(--orange)'; return; }
+  if (nw.length < 8) { st.textContent = 'New password must be at least 8 characters.'; st.style.color = 'var(--orange)'; return; }
+  const res = await fetch('/api/auth/change-password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: cur, new_password: nw }),
+  });
+  if (res.ok) {
+    document.getElementById('acc-cur').value = '';
+    document.getElementById('acc-new').value = '';
+    st.textContent = '✓ Password changed — please sign in again.';
+    st.style.color = 'var(--green)';
+    setTimeout(() => { localStorage.removeItem('gov_token'); location.href = '/'; }, 1500);
+  } else {
+    const d = await res.json().catch(() => ({}));
+    st.textContent = d.detail || 'Could not change password.';
+    st.style.color = 'var(--red)';
+  }
+}
+
+async function deleteAccount() {
+  if (!confirm('Permanently delete your account and all data? This cannot be undone.')) return;
+  const pw = prompt('Confirm your password to delete your account:');
+  if (!pw) return;
+  const res = await fetch('/api/auth/account', {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pw }),
+  });
+  if (res.ok) {
+    localStorage.removeItem('gov_token');
+    alert('Your account has been deleted.');
+    location.href = '/';
+  } else {
+    const d = await res.json().catch(() => ({}));
+    alert(d.detail || 'Could not delete account.');
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
