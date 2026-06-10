@@ -101,3 +101,19 @@ class MemoryFact(Base):
     updated_at: Mapped[datetime]  = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="memory_facts")
+
+
+class AuditLog(Base):
+    """Append-only forensic record of every command run on a user's server.
+    Non-sensitive metadata is plaintext; the command/output detail is redacted
+    AND encrypted with the user's vault key (detail_enc)."""
+    __tablename__ = "audit_log"
+
+    id:          Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id:     Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    created_at:  Mapped[datetime]  = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    action_type: Mapped[str]       = mapped_column(String, default="")   # vps_cmd | vps_write | tui_input
+    vps_host:    Mapped[str]       = mapped_column(String, default="")
+    headline:    Mapped[str]       = mapped_column(String, default="")   # redacted plain-English
+    status:      Mapped[str]       = mapped_column(String, default="ok") # ok | failed | cancelled
+    detail_enc:  Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # encrypted redacted JSON

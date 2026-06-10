@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import SECRET_KEY, ALGORITHM
 from backend.db import get_db, engine, Base, SessionLocal
-from backend.models import User, VpsConnection, Credential, Task, MemoryFact
+from backend.models import User, VpsConnection, Credential, Task, MemoryFact, AuditLog, ChatSession
 from backend.embeddings import embed
 from backend.auth import (
     hash_password, verify_password, create_access_token, get_current_user
@@ -268,7 +268,7 @@ async def delete_account(body: DeleteAccountIn, response: Response,
     # (explicit deletes are reliable under async; ORM lazy cascade is not).
     _user_sessions.pop(str(user.id), None)
     uid = user.id
-    for model in (VpsConnection, Credential, ChatSession, Task, MemoryFact):
+    for model in (VpsConnection, Credential, ChatSession, Task, MemoryFact, AuditLog):
         await db.execute(_sqldelete(model).where(model.user_id == uid))
     await db.execute(_sqldelete(User).where(User.id == uid))
     await db.commit()
@@ -397,6 +397,37 @@ async def delete_credential(cred_id: uuid.UUID, user: User = Depends(get_current
 
 
 # ── Tasks (Activity panel) ────────────────────────────────────────────────────
+# ── Audit log ─────────────────────────────────────────────────────────────────
+@app.get("/api/audit")
+async def list_audit(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    import json as _j
+    rows = (await db.execute(
+        select(AuditLog).where(AuditLog.user_id == user.id)
+        .order_by(AuditLog.created_at.desc()).limit(200)
+    )).scalars().all()
+    vault_key = get_user_vault_key(user)
+    out = []
+    for r in rows:
+        detail = {}
+        if r.detail_enc:
+            try:    detail = _j.loads(decrypt_secret(vault_key, r.detail_enc))
+            except Exception: detail = {}
+        out.append({
+            "id": str(r.id), "at": r.created_at.isoformat(),
+            "action_type": r.action_type, "vps_host": r.vps_host,
+            "headline": r.headline, "status": r.status,
+            "command": detail.get("command", ""), "output": detail.get("output", ""),
+            "path": detail.get("path", ""), "content_hash": detail.get("content_hash", ""),
+        })
+    return out
+
+@app.delete("/api/audit")
+async def clear_audit(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await db.execute(_sqldelete(AuditLog).where(AuditLog.user_id == user.id))
+    await db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/tasks")
 async def list_tasks(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(

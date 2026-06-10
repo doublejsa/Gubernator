@@ -1160,6 +1160,52 @@ function skipOnboarding() {
 }
 
 // ── Activity (tasks) modal ────────────────────────────────────────────────────
+// ── Audit log modal ───────────────────────────────────────────────────────────
+const AUDIT_ICON = { vps_cmd: '💻', vps_write: '📝', tui_input: '🤖' };
+
+async function openAuditModal() {
+  openModal('audit-modal');
+  loadAudit();
+}
+
+async function loadAudit() {
+  const list = document.getElementById('audit-list');
+  list.innerHTML = '<p class="empty-state">Loading…</p>';
+  try {
+    const rows = await (await fetch('/api/audit')).json();
+    if (!rows.length) {
+      list.innerHTML = '<p class="empty-state">No commands recorded yet.</p>';
+      return;
+    }
+    list.innerHTML = rows.map(r => {
+      const icon = AUDIT_ICON[r.action_type] || '•';
+      const when = new Date(r.at).toLocaleString();
+      const dot  = r.status === 'ok' ? '✓' : (r.status === 'failed' ? '✗' : '⛔');
+      const detail = r.action_type === 'vps_write'
+        ? `${esc(r.path)}${r.content_hash ? ` · sha256:${esc(r.content_hash)}` : ''}`
+        : esc(r.command || '');
+      const out = r.output ? `<pre class="audit-out">${esc(r.output)}</pre>` : '';
+      return `<div class="audit-row audit-${r.status}">
+        <span class="audit-ico">${icon}</span>
+        <div class="audit-body">
+          <div class="audit-headline">${dot} ${esc(r.headline)}</div>
+          ${detail ? `<code class="audit-cmd">${detail}</code>` : ''}
+          ${out}
+          <div class="audit-when">${esc(r.vps_host)} · ${when}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (_) {
+    list.innerHTML = '<p class="empty-state">Couldn\'t load the audit log.</p>';
+  }
+}
+
+async function clearAudit() {
+  if (!confirm('Clear the entire audit log? This cannot be undone.')) return;
+  await fetch('/api/audit', { method: 'DELETE' });
+  loadAudit();
+}
+
 const TASK_ICON = { in_progress: '⏳', done: '✓', failed: '✗' };
 
 async function openActivityModal() {

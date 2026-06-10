@@ -28,6 +28,7 @@
       <nav class="sidebar-nav">
         <button class="nav-item nav-build-tool" onclick="buildTool()" title="Turn a stuck / repeatable task into a reliable script"><span class="nav-ico">🔧</span><span class="nav-label">Build a tool</span></button>
         <button class="nav-item" onclick="openActivityModal()" title="Activity"><span class="nav-ico">📋</span><span class="nav-label">Activity</span></button>
+        <button class="nav-item" onclick="openAuditModal()" title="Audit log — every command run on your server"><span class="nav-ico">📜</span><span class="nav-label">Audit log</span></button>
         <button class="nav-item" onclick="openSkillsModal()"   title="Skills"><span class="nav-ico">🧩</span><span class="nav-label">Skills</span></button>
         <button class="nav-item" onclick="openMemoryModal()"   title="Memory"><span class="nav-ico">🧠</span><span class="nav-label">Memory</span></button>
         <button class="nav-item" onclick="openVaultModal()"    title="Vault"><span class="nav-ico">🔑</span><span class="nav-label">Vault</span></button>
@@ -234,6 +235,25 @@
       </div>
       <div class="modal-body">
         <div id="activity-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Audit log modal ────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="audit-modal" style="display:none" onclick="closeModalOnBg(event,'audit-modal')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <span>📜</span>
+        <span class="modal-title">Audit log</span>
+        <button class="modal-close" onclick="closeModal('audit-modal')">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12px;color:var(--dim);margin-bottom:12px">
+          Every command run on your server — what, when, and the result. Secrets are redacted and
+          file contents are never stored. Encrypted at rest.
+          <a href="#" onclick="clearAudit();return false" style="color:var(--red);float:right">Clear log</a>
+        </p>
+        <div id="audit-list"></div>
       </div>
     </div>
   </div>

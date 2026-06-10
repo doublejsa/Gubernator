@@ -41,10 +41,11 @@ from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.models import User, VpsConnection, ChatSession, Credential, Task, MemoryFact
+from backend.models import User, VpsConnection, ChatSession, Credential, Task, MemoryFact, AuditLog
 from backend.terminal import PTYSession
-from backend.vault import get_user_vault_key, decrypt_secret
+from backend.vault import get_user_vault_key, decrypt_secret, encrypt_secret
 from backend.embeddings import embed
+from backend.audit import redact as _redact
 
 ANTHROPIC_KEY_CRED = "_anthropic_key"   # reserved credential name — per-user, stored in vault
 
@@ -616,6 +617,29 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         await db.commit()
         await ws.send_json({"type": "tasks_updated"})
 
+    async def audit(action_type: str, headline: str, status: str,
+                    command: str = "", output: str = "", path: str = "",
+                    content_hash: str = ""):
+        """Append a forensic audit entry. Command/output are redacted, the file
+        body is never stored (path + hash only), and the detail JSON is encrypted
+        with the user's vault key."""
+        try:
+            detail = {
+                "command": _redact(command)[:2000] if command else "",
+                "output":  _redact(output)[:1500]  if output  else "",
+                "path":    path,
+                "content_hash": content_hash,
+            }
+            detail_enc = encrypt_secret(vault_key, json.dumps(detail))
+            db.add(AuditLog(
+                user_id=user.id, action_type=action_type,
+                vps_host=(vps_host or ""), headline=_redact(headline)[:200],
+                status=status, detail_enc=detail_enc,
+            ))
+            await db.commit()
+        except Exception:
+            pass   # auditing must never break the action flow
+
     def get_sessions():
         return sessions_ref.get("tui"), sessions_ref.get("shell")
 
@@ -1023,6 +1047,9 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                             latest    = extract_latest_tui_response(screen, anchor)
                             cmd_label = "(pagination continued)" if auto_continue else action["data"]
                             append_tui_log(user_id_str, cmd_label, latest or "(no output)")
+                            await audit("tui_input",
+                                        action.get("desc", {}).get("headline", "Instruction to agent"),
+                                        "ok", command=cmd_label, output=latest or "")
                             await ws.send_json({"type": "tui_output", "cmd": cmd_label,
                                                 "output": latest or "(no TUI output captured)"})
                             await ws.send_json({"type": "agent_status", "code": "ready",
@@ -1058,14 +1085,18 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                             output = await vps_task
                         except asyncio.CancelledError:
                             cancelled = True
+                    if cancelled:
+                        await audit("vps_cmd", action.get("desc", {}).get("headline", action["data"]),
+                                    "cancelled", command=action["data"])
                     if not cancelled:
                         await ws.send_json({"type": "vps_output", "cmd": action["data"], "output": output})
                         # Track failure streak for loop detection
                         ol = (output or "").lower()
-                        if any(m in ol for m in ("error", "failed", "fatal:", "denied", "not found", "cannot", "traceback")):
-                            error_streak += 1
-                        else:
-                            error_streak = 0
+                        is_err = any(m in ol for m in ("error", "failed", "fatal:", "denied", "not found", "cannot", "traceback"))
+                        error_streak = error_streak + 1 if is_err else 0
+                        await audit("vps_cmd", action.get("desc", {}).get("headline", action["data"]),
+                                    "failed" if is_err else "ok",
+                                    command=action["data"], output=output)
                         vps_content = f"Command run: `{action['data']}`\nOutput:\n{output}"
                         await run_claude(vps_content)
 
@@ -1093,11 +1124,17 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                         except Exception as exc:
                             return str(exc)
                     err = await loop.run_in_executor(None, _sftp_write)
+                    # File body is NEVER stored — only path + a content hash for integrity
+                    import hashlib as _hl
+                    chash = _hl.sha256(wr_content.encode("utf-8")).hexdigest()[:16]
+                    wr_headline = action.get("desc", {}).get("headline", f"Write {path.split('/')[-1]}")
                     if err:
+                        await audit("vps_write", wr_headline, "failed", path=path, content_hash=chash)
                         await ws.send_json({"type": "action_error", "action_id": aid,
                                             "message": f"Write failed: {err}"})
                         await run_claude(f"Failed to write `{path}`: {err}")
                     else:
+                        await audit("vps_write", wr_headline, "ok", path=path, content_hash=chash)
                         await ws.send_json({"type": "action_done", "action_id": aid, "label": f"Written: {path}"})
                         verify = await run_vps_cmd(
                             f"echo '--- {path} ---' && wc -l {path} && echo '---' && head -5 {path}")
