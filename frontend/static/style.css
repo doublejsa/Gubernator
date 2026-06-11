@@ -478,6 +478,17 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
 .modal-add-btn:hover { opacity: 0.85; }
 .empty-state { color: var(--dim); font-size: 13px; text-align: center; padding: 32px 0; }
 
+/* ── Toast ──────────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed; top: 18px; left: 50%;
+  transform: translateX(-50%) translateY(-24px);
+  background: #0f2a1a; border: 1px solid #2d5a2d; color: #9ff0ab;
+  padding: 12px 22px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  z-index: 5000; opacity: 0; transition: opacity 0.35s ease, transform 0.35s ease;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45); max-width: 92vw; text-align: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
 /* ── Paywall / subscribe screen ────────────────────────────────────────────── */
 .pw-price { margin-bottom: 16px; }
 .pw-free  { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }

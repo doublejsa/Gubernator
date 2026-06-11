@@ -906,6 +906,16 @@ function initChat() {
   };
 }
 
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg, kind) {
+  const t = document.createElement('div');
+  t.className = 'toast ' + (kind || 'success');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, 7000);
+}
+
 // ── Modal helpers ─────────────────────────────────────────────────────────────
 function openModal(id)  { document.getElementById(id).style.display = 'flex'; if (typeof closeDrawer === 'function') closeDrawer(); }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
@@ -1570,8 +1580,13 @@ async function showPaywall() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subscription_id: data.subscriptionID }),
         });
-        if (res.ok) { document.getElementById('paywall-status').textContent = '✓ Subscribed!'; setTimeout(() => location.reload(), 1200); }
-        else document.getElementById('paywall-status').textContent = 'Could not activate — contact support.';
+        if (res.ok) {
+          document.getElementById('paywall-status').textContent = '✓ Subscribed!';
+          localStorage.setItem('gov_just_subscribed', '1');   // show confirmation after reload
+          setTimeout(() => location.reload(), 1000);
+        } else {
+          document.getElementById('paywall-status').textContent = 'Could not activate — contact support.';
+        }
       },
       onError: () => { document.getElementById('paywall-status').textContent = 'PayPal error — please try again.'; },
     }).render('#paypal-button-container');
@@ -1593,9 +1608,11 @@ async function loadBillingSettings() {
   if (!el || !b) return;
   const labels = { none:'No subscription', trialing:'Free trial', active:'Active',
                    cancelled:'Cancelled', expired:'Expired', past_due:'Payment failed' };
-  let html = `<div style="font-size:13px;margin-bottom:6px">Status: <strong>${labels[b.status]||b.status}</strong></div>`;
-  if (b.status === 'trialing' && b.trial_ends_at)
-    html += `<div style="font-size:12px;color:var(--dim)">Trial ends ${new Date(b.trial_ends_at).toLocaleDateString()}</div>`;
+  const trialActive = b.trial_ends_at && new Date(b.trial_ends_at) > new Date();
+  const statusLabel = trialActive ? 'Free trial' : (labels[b.status] || b.status);
+  let html = `<div style="font-size:13px;margin-bottom:6px">Status: <strong>${statusLabel}</strong></div>`;
+  if (trialActive)
+    html += `<div style="font-size:12px;color:var(--dim)">Free until ${new Date(b.trial_ends_at).toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})}, then $29/month</div>`;
   if (b.entitled && (b.status === 'active' || b.status === 'trialing'))
     html += `<button class="cred-btn danger" style="margin-top:10px" onclick="cancelSubscription()">Cancel subscription</button>`;
   else
@@ -1610,6 +1627,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   // screen and nothing else (onboarding, terminals) runs until they subscribe.
   const b = await fetchBilling();
   if (b && !b.entitled) { showPaywall(); return; }
+
+  // Confirmation toast right after a successful subscribe
+  if (localStorage.getItem('gov_just_subscribed') === '1') {
+    localStorage.removeItem('gov_just_subscribed');
+    const ends = (b && b.trial_ends_at)
+      ? new Date(b.trial_ends_at).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
+    showToast(ends
+      ? `🎉 Your 14-day free trial is active — you won't be charged until ${ends}.`
+      : '🎉 Subscription active! Welcome to Gubernator.');
+  }
 
   const chatInput = document.getElementById('chat-input');
   chatInput.addEventListener('keydown', (e) => {
