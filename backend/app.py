@@ -771,7 +771,7 @@ async def ws_tui(ws: WebSocket, token: str = Query(...)):
         )).scalars().first()
         if not vps:
             await ws.accept()
-            await ws.send_json({"type": "error", "message": "No VPS configured"})
+            await ws.send_json({"type": "error", "subtype": "no_vps", "message": "No VPS configured"})
             await ws.close()
             return
         vault_key = get_user_vault_key(user)
@@ -799,7 +799,7 @@ async def ws_shell(ws: WebSocket, token: str = Query(...)):
         )).scalars().first()
         if not vps:
             await ws.accept()
-            await ws.send_json({"type": "error", "message": "No VPS configured"})
+            await ws.send_json({"type": "error", "subtype": "no_vps", "message": "No VPS configured"})
             await ws.close()
             return
         vault_key = get_user_vault_key(user)

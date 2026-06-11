@@ -84,6 +84,12 @@ function initTerminal(wrapperId, wsPath, col) {
           const msg = JSON.parse(e.data);
           if (msg.type === 'error' && msg.subtype === 'auth_expired') {
             localStorage.removeItem('gov_token'); location.href = '/';
+          } else if (msg.type === 'error' && msg.subtype === 'no_vps') {
+            // No server configured yet — stop reconnecting, prompt to add one
+            fatalError = true;
+            setStatus(col, 'error', 'No server');
+            term.write(`\r\n\x1b[33mNo server connected yet.\x1b[0m\r\n\x1b[33mClick 🖥 VPS in the sidebar to add one.\x1b[0m\r\n`, () => term.scrollToBottom());
+            return;
           } else if (msg.type === 'error' && msg.subtype === 'ssh_fatal') {
             // Fatal config error — stop reconnecting, show fix instructions
             fatalError = true;
