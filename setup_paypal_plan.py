@@ -13,9 +13,14 @@ from backend.config import PAYPAL_ENV, PLAN_PRICE_USD, TRIAL_DAYS
 
 async def main():
     print(f"PayPal env: {PAYPAL_ENV}  |  price: ${PLAN_PRICE_USD}/mo  |  trial: {TRIAL_DAYS} days")
-    print("Creating product…")
-    product_id = await paypal.create_product()
-    print("  product:", product_id)
+    # Reuse an existing product if its ID is passed (avoids creating duplicates on retry)
+    if len(sys.argv) > 1 and sys.argv[1].startswith("PROD-"):
+        product_id = sys.argv[1]
+        print("Reusing product:", product_id)
+    else:
+        print("Creating product…")
+        product_id = await paypal.create_product()
+        print("  product:", product_id)
     print("Creating plan…")
     plan_id = await paypal.create_plan(product_id)
     print("  plan:", plan_id)

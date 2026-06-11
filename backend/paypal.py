@@ -1,33 +1,50 @@
 """PayPal REST client — OAuth, subscriptions, plan setup, webhook verification."""
 from __future__ import annotations
+import asyncio
 import httpx
 from backend.config import (
     PAYPAL_API_BASE, PAYPAL_CLIENT_ID, PAYPAL_SECRET, PAYPAL_WEBHOOK_ID,
     PLAN_PRICE_USD, TRIAL_DAYS, APP_BASE_URL,
 )
 
+_RETRIES = 4   # retry transient connect/timeout errors
+
 
 async def _token() -> str:
-    async with httpx.AsyncClient(timeout=20) as c:
-        r = await c.post(
-            f"{PAYPAL_API_BASE}/v1/oauth2/token",
-            data={"grant_type": "client_credentials"},
-            auth=(PAYPAL_CLIENT_ID, PAYPAL_SECRET),
-        )
-        r.raise_for_status()
-        return r.json()["access_token"]
+    last = None
+    for attempt in range(_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=45.0)) as c:
+                r = await c.post(
+                    f"{PAYPAL_API_BASE}/v1/oauth2/token",
+                    data={"grant_type": "client_credentials"},
+                    auth=(PAYPAL_CLIENT_ID, PAYPAL_SECRET),
+                )
+                r.raise_for_status()
+                return r.json()["access_token"]
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
+            last = e
+            await asyncio.sleep(2 * (attempt + 1))
+    raise RuntimeError(f"PayPal token failed after {_RETRIES} attempts: {last}")
 
 
-async def _api(method: str, path: str, json=None, headers=None) -> dict:
-    tok = await _token()
+async def _api(method: str, path: str, json=None, headers=None, token: str | None = None) -> dict:
+    tok = token or await _token()
     h = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
     if headers:
         h.update(headers)
-    async with httpx.AsyncClient(timeout=30) as c:
-        r = await c.request(method, f"{PAYPAL_API_BASE}{path}", json=json, headers=h)
-        if r.status_code >= 400:
-            raise RuntimeError(f"PayPal {method} {path} → {r.status_code}: {r.text}")
-        return r.json() if r.text else {}
+    last = None
+    for attempt in range(_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=45.0)) as c:
+                r = await c.request(method, f"{PAYPAL_API_BASE}{path}", json=json, headers=h)
+                if r.status_code >= 400:
+                    raise RuntimeError(f"PayPal {method} {path} → {r.status_code}: {r.text}")
+                return r.json() if r.text else {}
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
+            last = e
+            await asyncio.sleep(2 * (attempt + 1))
+    raise RuntimeError(f"PayPal {method} {path} failed after {_RETRIES} attempts: {last}")
 
 
 # ── One-time setup: product + plan (run via setup_paypal_plan.py) ─────────────
