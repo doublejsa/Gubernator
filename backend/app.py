@@ -421,13 +421,6 @@ async def list_audit(user: User = Depends(get_current_user), db: AsyncSession = 
         })
     return out
 
-@app.delete("/api/audit")
-async def clear_audit(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    await db.execute(_sqldelete(AuditLog).where(AuditLog.user_id == user.id))
-    await db.commit()
-    return {"ok": True}
-
-
 @app.get("/api/tasks")
 async def list_tasks(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(

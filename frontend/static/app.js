@@ -1200,12 +1200,6 @@ async function loadAudit() {
   }
 }
 
-async function clearAudit() {
-  if (!confirm('Clear the entire audit log? This cannot be undone.')) return;
-  await fetch('/api/audit', { method: 'DELETE' });
-  loadAudit();
-}
-
 const TASK_ICON = { in_progress: '⏳', done: '✓', failed: '✗' };
 
 async function openActivityModal() {
