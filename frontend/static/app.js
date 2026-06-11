@@ -1531,10 +1531,27 @@ async function showPaywall() {
   const pw = document.getElementById('paywall');
   pw.style.display = 'flex';
   pw.style.zIndex = '3000';
-  const msg = document.getElementById('paywall-msg');
-  if (b.status === 'past_due')      msg.textContent = 'Your last payment failed. Re-subscribe to keep using Gubernator.';
-  else if (b.status === 'expired' || b.status === 'cancelled') msg.textContent = 'Your subscription has ended. Subscribe to continue.';
-  else msg.textContent = 'Start your 14-day free trial to connect your agent and get going.';
+
+  const isReturning = ['past_due', 'expired', 'cancelled'].includes(b.status);
+  const days = b.trial_days || 14;
+  // First-charge date = trial_ends_at if known, else today + trial days
+  const chargeDate = b.trial_ends_at ? new Date(b.trial_ends_at)
+                                     : new Date(Date.now() + days * 86400000);
+  const fmt = chargeDate.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+  const dateEl = document.getElementById('pw-charge-date');
+  if (dateEl) dateEl.textContent = fmt;
+
+  if (isReturning) {
+    // Returning/lapsed user — no "free trial" framing, straight resubscribe
+    document.getElementById('pw-title').textContent    = 'Resume Gubernator';
+    document.getElementById('pw-headline').textContent = '$29/month';
+    document.getElementById('pw-subhead').textContent  =
+      b.status === 'past_due' ? 'Your last payment failed — reactivate to continue.'
+                              : 'Your subscription ended — reactivate to continue.';
+    ['pw-timeline', 'pw-zero', 'pw-benefits'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
+    document.getElementById('pw-choose').textContent = 'Choose how to pay:';
+    document.getElementById('pw-under').textContent  = 'Your subscription resumes immediately. Cancel anytime.';
+  }
 
   if (!b.plan_id) {
     document.getElementById('paywall-status').textContent =

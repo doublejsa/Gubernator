@@ -82,6 +82,16 @@ async def send_verification(to: str, user_id: str) -> bool:
     text  = f"Confirm your Gubernator email: {url}"
     return await send_email(to, "Confirm your Gubernator email", html, text)
 
+async def send_trial_reminder(to: str, ends_str: str) -> bool:
+    url  = f"{APP_BASE_URL}/app"
+    html = _wrap("Your free trial ends soon",
+                 f"Heads up — your Gubernator free trial ends on <strong>{ends_str}</strong>, after which "
+                 f"your subscription is $29/month. No action needed if you'd like to continue. "
+                 f"If you'd rather not, you can cancel anytime from Settings before then and you won't be charged.",
+                 "Open Gubernator", url)
+    text = f"Your Gubernator free trial ends on {ends_str}. To continue, do nothing — $29/mo begins then. To cancel, open Settings: {url}"
+    return await send_email(to, "Your Gubernator trial ends in 2 days", html, text)
+
 async def send_password_reset(to: str, user_id: str) -> bool:
     token = make_token(user_id, "reset", hours=1)
     url   = f"{APP_BASE_URL}/?reset={token}"

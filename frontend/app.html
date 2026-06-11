@@ -399,18 +399,48 @@
 
   <!-- ── Paywall / subscribe overlay ────────────────────────────────────── -->
   <div class="modal-overlay" id="paywall" style="display:none">
-    <div class="modal" onclick="event.stopPropagation()" style="width:440px">
+    <div class="modal" onclick="event.stopPropagation()" style="width:460px">
       <div class="modal-header">
-        <span>💳</span>
-        <span class="modal-title">Subscribe to Gubernator</span>
+        <span>⚙️</span>
+        <span class="modal-title" id="pw-title">Start your free trial</span>
       </div>
       <div class="modal-body" style="text-align:center">
-        <div id="paywall-msg" style="font-size:14px;color:var(--dim);line-height:1.6;margin-bottom:18px"></div>
-        <div style="font-size:32px;font-weight:700;color:#fff">$29<span style="font-size:15px;color:var(--dim)">/month</span></div>
-        <div style="font-size:13px;color:var(--green);margin:6px 0 20px">14-day free trial — cancel anytime</div>
+
+        <div class="pw-price">
+          <div class="pw-free" id="pw-headline">Free for 14 days</div>
+          <div class="pw-then" id="pw-subhead">then $29/month · cancel anytime</div>
+        </div>
+
+        <ul class="pw-benefits" id="pw-benefits">
+          <li>Your AI agent runs tasks 24/7</li>
+          <li>Browse, deploy &amp; automate your servers</li>
+          <li>Full access for the whole trial</li>
+        </ul>
+
+        <div class="pw-timeline" id="pw-timeline">
+          <div class="pw-tl"><div class="pw-tl-day">Today</div><div class="pw-tl-txt">Free access · $0</div></div>
+          <div class="pw-tl-arrow">→</div>
+          <div class="pw-tl"><div class="pw-tl-day">Day 12</div><div class="pw-tl-txt">We email you</div></div>
+          <div class="pw-tl-arrow">→</div>
+          <div class="pw-tl"><div class="pw-tl-day">Day 14</div><div class="pw-tl-txt">$29/mo begins</div></div>
+        </div>
+
+        <div class="pw-zero" id="pw-zero">
+          <strong>$0.00 due today.</strong> Your first payment of $29 is on
+          <strong id="pw-charge-date">—</strong>, only if you don't cancel.
+        </div>
+
+        <div class="pw-choose" id="pw-choose">Choose how to start your free trial:</div>
         <div id="paypal-button-container"></div>
-        <div id="paywall-status" style="font-size:12px;color:var(--dim);margin-top:14px"></div>
-        <div style="margin-top:18px;font-size:12px"><a href="#" onclick="doLogout();return false" style="color:var(--dim)">Sign out</a></div>
+        <div class="pw-under" id="pw-under">
+          You won't be charged today — PayPal won't bill you until your trial ends.
+          Cancel anytime before then and pay nothing.
+        </div>
+
+        <div class="pw-trust">🔒 Secured by PayPal — we never see your card details. We'll email you 2 days before your trial ends.</div>
+
+        <div id="paywall-status" style="font-size:12px;color:var(--dim);margin-top:12px"></div>
+        <div style="margin-top:16px;font-size:12px"><a href="#" onclick="doLogout();return false" style="color:var(--dim)">Sign out</a></div>
       </div>
     </div>
   </div>

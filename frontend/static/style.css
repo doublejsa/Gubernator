@@ -478,6 +478,35 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
 .modal-add-btn:hover { opacity: 0.85; }
 .empty-state { color: var(--dim); font-size: 13px; text-align: center; padding: 32px 0; }
 
+/* ── Paywall / subscribe screen ────────────────────────────────────────────── */
+.pw-price { margin-bottom: 16px; }
+.pw-free  { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
+.pw-then  { font-size: 13px; color: var(--dim); margin-top: 2px; }
+
+.pw-benefits { list-style: none; padding: 0; margin: 0 0 18px; text-align: left; display: inline-block; }
+.pw-benefits li { font-size: 13px; color: var(--text); margin: 5px 0; padding-left: 22px; position: relative; }
+.pw-benefits li::before { content: '✓'; position: absolute; left: 0; color: var(--green); font-weight: 700; }
+
+.pw-timeline {
+  display: flex; align-items: stretch; justify-content: center; gap: 4px;
+  background: #0d1117; border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 8px; margin-bottom: 16px;
+}
+.pw-tl { flex: 1; }
+.pw-tl-day { font-size: 11px; font-weight: 700; color: var(--accent); }
+.pw-tl-txt { font-size: 10px; color: var(--dim); line-height: 1.3; margin-top: 2px; }
+.pw-tl-arrow { color: var(--border); align-self: center; font-size: 13px; }
+
+.pw-zero {
+  background: #0f2a1a; border: 1px solid #2d5a2d; border-radius: 8px;
+  padding: 10px 12px; font-size: 13px; color: #c9f0d0; line-height: 1.5; margin-bottom: 18px;
+}
+.pw-zero strong { color: #fff; }
+
+.pw-choose { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+.pw-under  { font-size: 12px; color: var(--dim); line-height: 1.5; margin-top: 10px; }
+.pw-trust  { font-size: 11px; color: #6e7681; line-height: 1.5; margin-top: 14px; }
+
 /* ── Loop-detected banner ──────────────────────────────────────────────────── */
 .bubble.loop-banner {
   align-self: stretch; max-width: 100%;
