@@ -65,6 +65,14 @@ body {
 .login-legal a { color: #8b949e; text-decoration: none; }
 .login-legal a:hover { color: #58a6ff; }
 
+.login-check {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-top: 12px; font-size: 12px; color: #8b949e; line-height: 1.5; cursor: pointer;
+}
+.login-check input { width: auto; margin-top: 2px; flex-shrink: 0; cursor: pointer; }
+.login-check a { color: #58a6ff; text-decoration: none; }
+.login-check a:hover { text-decoration: underline; }
+
 .login-links { text-align: right; margin-top: 8px; }
 .login-links a { color: #8b949e; font-size: 12px; text-decoration: none; }
 .login-links a:hover { color: #58a6ff; }

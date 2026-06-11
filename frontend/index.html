@@ -66,12 +66,15 @@
           <input type="email" id="email" autocomplete="email" required/>
           <label>Password (min 8 characters)</label>
           <input type="password" id="password" autocomplete="new-password" required/>
+          <label>Confirm password</label>
+          <input type="password" id="password2" autocomplete="new-password" required/>
+          <label class="login-check">
+            <input type="checkbox" id="agree"/>
+            <span>I agree to the <a href="/terms" target="_blank">Terms</a> and
+              <a href="/privacy" target="_blank">Privacy Policy</a>.</span>
+          </label>
           <button type="submit" id="reg-btn">Create account</button>
         </form>
-        <p style="font-size:11px;color:#8b949e;margin-top:10px;line-height:1.5">
-          By creating an account you agree to our
-          <a href="/terms" target="_blank">Terms</a> and
-          <a href="/privacy" target="_blank">Privacy Policy</a>.</p>
         <div class="login-register">Already have an account? <a href="#" onclick="showLogin();return false">Sign in</a></div>`;
     }
 
@@ -116,8 +119,12 @@
 
     async function doRegister(e) {
       e.preventDefault();
+      const pw = $('password').value, pw2 = $('password2').value;
+      if (pw.length < 8)        { err('Password must be at least 8 characters.'); return; }
+      if (pw !== pw2)           { err('Passwords do not match.'); return; }
+      if (!$('agree').checked)  { err('Please agree to the Terms and Privacy Policy.'); return; }
       const btn = $('reg-btn'); btn.disabled = true; btn.textContent = 'Creating…';
-      const { ok, data } = await api('/api/auth/register', { email: $('email').value, password: $('password').value });
+      const { ok, data } = await api('/api/auth/register', { email: $('email').value, password: pw });
       btn.disabled = false; btn.textContent = 'Create account';
       if (ok) {
         $('form-host').innerHTML = `<div class="login-register">
