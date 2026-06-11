@@ -1526,7 +1526,11 @@ function loadPaypalSDK(clientId) {
 async function showPaywall() {
   const b = await fetchBilling();
   if (!b) return;
-  document.getElementById('paywall').style.display = 'flex';
+  // Paywall takes precedence over everything else
+  const ob = document.getElementById('onboarding'); if (ob) ob.style.display = 'none';
+  const pw = document.getElementById('paywall');
+  pw.style.display = 'flex';
+  pw.style.zIndex = '3000';
   const msg = document.getElementById('paywall-msg');
   if (b.status === 'past_due')      msg.textContent = 'Your last payment failed. Re-subscribe to keep using Gubernator.';
   else if (b.status === 'expired' || b.status === 'cancelled') msg.textContent = 'Your subscription has ended. Subscribe to continue.';
@@ -1585,9 +1589,10 @@ async function loadBillingSettings() {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
-  // Gate on subscription before anything else
+  // Gate on subscription before anything else — paywall takes over the whole
+  // screen and nothing else (onboarding, terminals) runs until they subscribe.
   const b = await fetchBilling();
-  if (b && !b.entitled) { showPaywall(); }
+  if (b && !b.entitled) { showPaywall(); return; }
 
   const chatInput = document.getElementById('chat-input');
   chatInput.addEventListener('keydown', (e) => {
