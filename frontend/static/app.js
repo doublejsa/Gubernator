@@ -898,6 +898,7 @@ function initChat() {
         else if (msg.subtype === 'rate_limit')   addRateLimitBubble();
         else if (msg.subtype === 'no_api_key')   addNoApiKeyBubble();
         else if (msg.subtype === 'auth_expired') { localStorage.removeItem('gov_token'); location.href = '/'; }
+        else if (msg.subtype === 'subscription_required') { showPaywall(); }
         else addFriendlyError(msg.message || 'Unknown error');
         sending = false; setActionButtonsDisabled(false);
         document.getElementById('chat-send').disabled = false; break;
@@ -1432,6 +1433,7 @@ async function deleteMemory(id) {
 // ── Settings modal ────────────────────────────────────────────────────────────
 async function openSettingsModal() {
   openModal('settings-modal');
+  loadBillingSettings();
   // Show whether a key is already saved
   const res   = await fetch('/api/credentials');
   const creds = await res.json();
@@ -1501,9 +1503,91 @@ async function deleteAccount() {
   }
 }
 
+// ── Billing / paywall ─────────────────────────────────────────────────────────
+let _billing = null;
+let _paypalSDKLoaded = false;
+
+async function fetchBilling() {
+  try { _billing = await (await fetch('/api/billing')).json(); } catch (_) { _billing = null; }
+  return _billing;
+}
+
+function loadPaypalSDK(clientId) {
+  return new Promise((resolve, reject) => {
+    if (_paypalSDKLoaded && window.paypal) return resolve();
+    const s = document.createElement('script');
+    s.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&vault=true&intent=subscription`;
+    s.onload = () => { _paypalSDKLoaded = true; resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function showPaywall() {
+  const b = await fetchBilling();
+  if (!b) return;
+  document.getElementById('paywall').style.display = 'flex';
+  const msg = document.getElementById('paywall-msg');
+  if (b.status === 'past_due')      msg.textContent = 'Your last payment failed. Re-subscribe to keep using Gubernator.';
+  else if (b.status === 'expired' || b.status === 'cancelled') msg.textContent = 'Your subscription has ended. Subscribe to continue.';
+  else msg.textContent = 'Start your 14-day free trial to connect your agent and get going.';
+
+  if (!b.plan_id) {
+    document.getElementById('paywall-status').textContent =
+      '⚠ Billing not configured yet (no plan). Contact support.';
+    return;
+  }
+  try {
+    await loadPaypalSDK(b.paypal_client_id);
+    document.getElementById('paypal-button-container').innerHTML = '';
+    window.paypal.Buttons({
+      style: { layout: 'vertical', color: 'blue', shape: 'pill', label: 'subscribe' },
+      createSubscription: (data, actions) => actions.subscription.create({ plan_id: b.plan_id }),
+      onApprove: async (data) => {
+        document.getElementById('paywall-status').textContent = 'Activating…';
+        const res = await fetch('/api/billing/subscribe', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription_id: data.subscriptionID }),
+        });
+        if (res.ok) { document.getElementById('paywall-status').textContent = '✓ Subscribed!'; setTimeout(() => location.reload(), 1200); }
+        else document.getElementById('paywall-status').textContent = 'Could not activate — contact support.';
+      },
+      onError: () => { document.getElementById('paywall-status').textContent = 'PayPal error — please try again.'; },
+    }).render('#paypal-button-container');
+  } catch (_) {
+    document.getElementById('paywall-status').textContent = 'Could not load PayPal. Check your connection.';
+  }
+}
+
+async function cancelSubscription() {
+  if (!confirm('Cancel your subscription? You keep access until the end of the paid period.')) return;
+  const res = await fetch('/api/billing/cancel', { method: 'POST' });
+  if (res.ok) { alert('Subscription cancelled.'); loadBillingSettings(); }
+  else { const d = await res.json().catch(()=>({})); alert(d.detail || 'Cancellation failed.'); }
+}
+
+async function loadBillingSettings() {
+  const b = await fetchBilling();
+  const el = document.getElementById('billing-settings');
+  if (!el || !b) return;
+  const labels = { none:'No subscription', trialing:'Free trial', active:'Active',
+                   cancelled:'Cancelled', expired:'Expired', past_due:'Payment failed' };
+  let html = `<div style="font-size:13px;margin-bottom:6px">Status: <strong>${labels[b.status]||b.status}</strong></div>`;
+  if (b.status === 'trialing' && b.trial_ends_at)
+    html += `<div style="font-size:12px;color:var(--dim)">Trial ends ${new Date(b.trial_ends_at).toLocaleDateString()}</div>`;
+  if (b.entitled && (b.status === 'active' || b.status === 'trialing'))
+    html += `<button class="cred-btn danger" style="margin-top:10px" onclick="cancelSubscription()">Cancel subscription</button>`;
+  else
+    html += `<button class="btn-primary" style="margin-top:10px" onclick="showPaywall()">Subscribe</button>`;
+  el.innerHTML = html;
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   await checkAuth();
+  // Gate on subscription before anything else
+  const b = await fetchBilling();
+  if (b && !b.entitled) { showPaywall(); }
 
   const chatInput = document.getElementById('chat-input');
   chatInput.addEventListener('keydown', (e) => {

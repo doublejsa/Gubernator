@@ -52,3 +52,14 @@ SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or "noreply@gubernator.co")
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")  # for links in emails
+
+# ── PayPal ────────────────────────────────────────────────────────────────────
+PAYPAL_ENV        = os.getenv("PAYPAL_ENV", "sandbox").lower()   # "sandbox" | "live"
+PAYPAL_CLIENT_ID  = os.getenv("PAYPAL_CLIENT_ID", "")
+PAYPAL_SECRET     = os.getenv("PAYPAL_SECRET", "")
+PAYPAL_PLAN_ID    = os.getenv("PAYPAL_PLAN_ID", "")
+PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID", "")
+PAYPAL_API_BASE   = ("https://api-m.paypal.com" if PAYPAL_ENV == "live"
+                     else "https://api-m.sandbox.paypal.com")
+PLAN_PRICE_USD    = "29.00"
+TRIAL_DAYS        = 14

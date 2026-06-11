@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio, os, uuid, json as _json, shlex
 from pathlib import Path
 import paramiko
-from fastapi import FastAPI, Depends, HTTPException, Response, WebSocket, WebSocketDisconnect, status, Query
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect, status, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +29,11 @@ from backend.vault import (
 from backend.terminal import PTYSession
 from backend.ws_handlers import pty_ws_handler, chat_ws_handler
 from backend.email_sender import send_verification, send_password_reset, read_token
+from backend import paypal
+from backend.config import (
+    PAYPAL_CLIENT_ID, PAYPAL_PLAN_ID, PAYPAL_ENV, PLAN_PRICE_USD, TRIAL_DAYS,
+)
+from datetime import datetime as _dt, timedelta as _td
 
 BASE_DIR     = Path(__file__).parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -421,6 +426,97 @@ async def list_audit(user: User = Depends(get_current_user), db: AsyncSession = 
         })
     return out
 
+# ── Billing / subscription ────────────────────────────────────────────────────
+def is_entitled(user: User) -> bool:
+    """True if the user may use paid features (in trial or active sub, or
+    cancelled-but-still-within-paid-period)."""
+    st = user.subscription_status
+    if st in ("trialing", "active"):
+        return True
+    if st == "cancelled" and user.current_period_end and user.current_period_end > _dt.utcnow():
+        return True
+    return False
+
+@app.get("/api/billing")
+async def billing_status(user: User = Depends(get_current_user)):
+    return {
+        "status":            user.subscription_status,
+        "entitled":          is_entitled(user),
+        "trial_ends_at":     user.trial_ends_at.isoformat() if user.trial_ends_at else None,
+        "current_period_end":user.current_period_end.isoformat() if user.current_period_end else None,
+        "paypal_client_id":  PAYPAL_CLIENT_ID,
+        "plan_id":           PAYPAL_PLAN_ID,
+        "price_usd":         PLAN_PRICE_USD,
+        "trial_days":        TRIAL_DAYS,
+        "env":               PAYPAL_ENV,
+    }
+
+class SubscribeIn(BaseModel):
+    subscription_id: str
+
+@app.post("/api/billing/subscribe")
+async def billing_subscribe(body: SubscribeIn, user: User = Depends(get_current_user),
+                            db: AsyncSession = Depends(get_db)):
+    # Verify the subscription really exists and belongs to this flow via PayPal
+    try:
+        sub = await paypal.get_subscription(body.subscription_id)
+    except Exception as e:
+        raise HTTPException(400, f"Could not verify subscription with PayPal: {e}")
+    status_map = {"APPROVAL_PENDING": "none", "APPROVED": "trialing", "ACTIVE": "active",
+                  "SUSPENDED": "past_due", "CANCELLED": "cancelled", "EXPIRED": "expired"}
+    pp_status = sub.get("status", "")
+    user.paypal_subscription_id = body.subscription_id
+    user.subscription_status    = status_map.get(pp_status, "trialing")
+    # Trial end: 14 days from now if we don't have a better signal
+    user.trial_ends_at = _dt.utcnow() + _td(days=TRIAL_DAYS)
+    # next billing time from PayPal if present
+    nb = (sub.get("billing_info") or {}).get("next_billing_time")
+    if nb:
+        try: user.current_period_end = _dt.fromisoformat(nb.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception: pass
+    await db.commit()
+    return {"ok": True, "status": user.subscription_status}
+
+@app.post("/api/billing/cancel")
+async def billing_cancel(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not user.paypal_subscription_id:
+        raise HTTPException(400, "No active subscription.")
+    try:
+        await paypal.cancel_subscription(user.paypal_subscription_id)
+    except Exception as e:
+        raise HTTPException(400, f"PayPal cancellation failed: {e}")
+    user.subscription_status = "cancelled"
+    await db.commit()
+    return {"ok": True}
+
+@app.post("/api/webhook/paypal")
+async def paypal_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    body = await request.json()
+    if not await paypal.verify_webhook(dict(request.headers), body):
+        raise HTTPException(400, "Invalid webhook signature")
+    event = body.get("event_type", "")
+    res   = body.get("resource", {}) or {}
+    sub_id = res.get("id") or (res.get("billing_agreement_id"))
+    if not sub_id:
+        return {"ok": True}
+    u = (await db.execute(select(User).where(User.paypal_subscription_id == sub_id))).scalar_one_or_none()
+    if not u:
+        return {"ok": True}
+    if event in ("BILLING.SUBSCRIPTION.ACTIVATED",):
+        u.subscription_status = "active"
+    elif event in ("PAYMENT.SALE.COMPLETED",):
+        u.subscription_status = "active"
+        u.current_period_end  = _dt.utcnow() + _td(days=31)
+    elif event in ("BILLING.SUBSCRIPTION.CANCELLED",):
+        u.subscription_status = "cancelled"
+    elif event in ("BILLING.SUBSCRIPTION.SUSPENDED", "BILLING.SUBSCRIPTION.PAYMENT.FAILED", "PAYMENT.SALE.DENIED"):
+        u.subscription_status = "past_due"
+    elif event in ("BILLING.SUBSCRIPTION.EXPIRED",):
+        u.subscription_status = "expired"
+    await db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/tasks")
 async def list_tasks(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(
@@ -719,6 +815,11 @@ async def ws_chat(ws: WebSocket, token: str = Query(...)):
         if not user:
             await ws.accept()
             await ws.send_json({"type": "error", "subtype": "auth_expired"})
+            await ws.close()
+            return
+        if not is_entitled(user):
+            await ws.accept()
+            await ws.send_json({"type": "error", "subtype": "subscription_required"})
             await ws.close()
             return
         sessions = get_user_sessions(str(user.id))

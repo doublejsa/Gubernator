@@ -363,6 +363,12 @@
           </div>
         </div>
 
+        <!-- Billing -->
+        <div style="margin-bottom:24px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">💳 Plan &amp; Billing</div>
+          <div id="billing-settings" style="font-size:13px;color:var(--dim)">Loading…</div>
+        </div>
+
         <!-- Account -->
         <div style="margin-bottom:24px">
           <div style="font-size:13px;font-weight:600;margin-bottom:8px">🔒 Account</div>
@@ -387,6 +393,24 @@
           <button class="cred-btn danger" onclick="deleteAccount()">Delete my account…</button>
         </div>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Paywall / subscribe overlay ────────────────────────────────────── -->
+  <div class="modal-overlay" id="paywall" style="display:none">
+    <div class="modal" onclick="event.stopPropagation()" style="width:440px">
+      <div class="modal-header">
+        <span>💳</span>
+        <span class="modal-title">Subscribe to Gubernator</span>
+      </div>
+      <div class="modal-body" style="text-align:center">
+        <div id="paywall-msg" style="font-size:14px;color:var(--dim);line-height:1.6;margin-bottom:18px"></div>
+        <div style="font-size:32px;font-weight:700;color:#fff">$29<span style="font-size:15px;color:var(--dim)">/month</span></div>
+        <div style="font-size:13px;color:var(--green);margin:6px 0 20px">14-day free trial — cancel anytime</div>
+        <div id="paypal-button-container"></div>
+        <div id="paywall-status" style="font-size:12px;color:var(--dim);margin-top:14px"></div>
+        <div style="margin-top:18px;font-size:12px"><a href="#" onclick="doLogout();return false" style="color:var(--dim)">Sign out</a></div>
       </div>
     </div>
   </div>

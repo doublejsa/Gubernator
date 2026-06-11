@@ -18,6 +18,11 @@ class User(Base):
     password_hash:Mapped[str]       = mapped_column(String, nullable=False)
     vault_key_enc:Mapped[str]       = mapped_column(Text, nullable=True)   # Fernet key encrypted with master key
     email_verified:Mapped[bool]     = mapped_column(Boolean, default=False)
+    # Subscription
+    subscription_status:    Mapped[str] = mapped_column(String, default="none")  # none|trialing|active|cancelled|expired|past_due
+    paypal_subscription_id: Mapped[Optional[str]]      = mapped_column(String, nullable=True)
+    trial_ends_at:          Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    current_period_end:     Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at:   Mapped[datetime]  = mapped_column(DateTime, default=datetime.utcnow)
 
     vps_connections: Mapped[list["VpsConnection"]] = relationship(back_populates="user", cascade="all, delete-orphan")
