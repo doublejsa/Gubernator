@@ -1,0 +1,8 @@
+# Replace the domain + email before deploying.
+app.gubernator.co {
+	encode zstd gzip
+	# WebSockets + API + static all proxy to the app container
+	reverse_proxy app:8000
+
+	tls youremail@gubernator.co   # for Let's Encrypt notices
+}
