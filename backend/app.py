@@ -61,9 +61,12 @@ async def no_cache_static(request, call_next):
 # ── DB init ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup():
+    from sqlalchemy import text
     from backend.config import assert_production_secrets
     assert_production_secrets()   # fail fast on weak/missing secrets in production
     async with engine.begin() as conn:
+        # pgvector must be enabled before tables with VECTOR columns are created
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
 
