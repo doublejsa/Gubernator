@@ -21,7 +21,7 @@ curl -fsSL https://get.docker.com | sh
 ## 4. Get the code + config
 ```bash
 mkdir -p /opt/gubernator && cd /opt/gubernator
-git clone https://github.com/doublejsa/Gubernator.git .
+git clone -b prod https://github.com/doublejsa/Gubernator.git .   # deploy from the prod branch
 cp .env.production.example .env
 nano .env        # fill EVERYTHING in (see below), then: chmod 600 .env
 ```
@@ -70,10 +70,18 @@ set `B2_BUCKET` in `.env`.
 - Register → confirm the verification email arrives (Resend).
 - Subscribe with a real (or sandbox→live) PayPal account → app unlocks.
 
-## Updating later
+## Release workflow (main → prod)
+Develop on `main`. When a change is tested and ready to ship:
+```bash
+# on your machine
+git checkout prod && git merge main && git push origin prod
+git checkout main
+```
+Then update the server:
 ```bash
 cd /opt/gubernator && git pull && docker compose up -d --build
 ```
+The server only ever tracks `prod`, so live never picks up half-finished `main` work.
 
 ## Security reminders (see SECURITY.md)
 - `.env` is `chmod 600`, never committed.
