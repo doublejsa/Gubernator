@@ -10,7 +10,7 @@ from email.message import EmailMessage
 from jose import jwt, JWTError
 from backend.config import (
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, APP_BASE_URL,
-    SECRET_KEY, ALGORITHM,
+    SECRET_KEY, ALGORITHM, RESEND_API_KEY, EMAIL_FROM,
 )
 
 # ── Signed tokens (no DB storage needed) ──────────────────────────────────────
@@ -52,7 +52,28 @@ def _send_sync(to: str, subject: str, html: str, text: str):
             s.login(SMTP_USER, SMTP_PASS)
             s.send_message(msg)
 
+async def _send_resend(to: str, subject: str, html: str, text: str) -> bool:
+    """Send via Resend's REST API (reliable inbox delivery)."""
+    import httpx
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            json={"from": EMAIL_FROM, "to": [to], "subject": subject, "html": html, "text": text},
+        )
+        if r.status_code >= 400:
+            print(f"[RESEND ERROR] {r.status_code}: {r.text}")
+            return False
+        return True
+
 async def send_email(to: str, subject: str, html: str, text: str) -> bool:
+    # Prefer Resend when configured; fall back to raw SMTP otherwise.
+    if RESEND_API_KEY:
+        try:
+            return await _send_resend(to, subject, html, text)
+        except Exception as e:
+            print(f"[RESEND ERROR] {e}")
+            return False
     try:
         await asyncio.get_event_loop().run_in_executor(None, _send_sync, to, subject, html, text)
         return True

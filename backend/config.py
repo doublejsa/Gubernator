@@ -53,6 +53,10 @@ SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or "noreply@gubernator.co")
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")  # for links in emails
 
+# Resend (transactional email). If set, used instead of raw SMTP for delivery.
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+EMAIL_FROM     = os.getenv("EMAIL_FROM", SMTP_FROM)   # must be a verified Resend sender
+
 # ── PayPal ────────────────────────────────────────────────────────────────────
 PAYPAL_ENV        = os.getenv("PAYPAL_ENV", "sandbox").lower()   # "sandbox" | "live"
 PAYPAL_CLIENT_ID  = os.getenv("PAYPAL_CLIENT_ID", "")
