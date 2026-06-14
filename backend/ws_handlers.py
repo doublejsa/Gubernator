@@ -1067,6 +1067,16 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                         await run_claude(f"Command rejected: `{action['data']}` — heredoc not supported. "
                                          "Use [VPS_WRITE] to write files.")
                         continue
+                    # Guard: don't ssh into the VPS's own address — commands already run ON it.
+                    if vps_host and re.search(r'\bssh\b', action["data"]) and vps_host in action["data"]:
+                        await ws.send_json({"type": "action_error", "action_id": aid,
+                                            "message": "Blocked — you're already on the VPS; no need to ssh into it."})
+                        await run_claude(
+                            f"Command blocked: `{action['data']}`. You are ALREADY on the user's VPS — "
+                            f"[VPS_CMD] runs directly on it. Never ssh into the VPS's own address ({vps_host}). "
+                            "To run something on the VPS, run it directly (e.g. `openclaw status`, `ls`). "
+                            "There is no connection to debug — the Console is already connected.")
+                        continue
                     await ws.send_json({"type": "action_done", "action_id": aid, "label": action["data"]})
                     vps_task  = asyncio.create_task(run_vps_cmd(action["data"]))
                     cancelled = False
