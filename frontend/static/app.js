@@ -183,6 +183,23 @@ function toggleSidebar() {
   setTimeout(reflowTerminals, 240);
 }
 
+// ── Theme (light / dark) ──────────────────────────────────────────────────────
+function applyThemeLabel() {
+  const t = document.documentElement.getAttribute('data-theme') || 'light';
+  const ico = document.getElementById('theme-toggle-ico');
+  const lbl = document.getElementById('theme-toggle-label');
+  // Button shows the theme you'll switch TO.
+  if (ico) ico.textContent = (t === 'dark') ? '☀️' : '🌙';
+  if (lbl) lbl.textContent = (t === 'dark') ? 'Light mode' : 'Dark mode';
+}
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = (cur === 'dark') ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('gov_theme', next); } catch (e) {}
+  applyThemeLabel();
+}
+
 // ── Mobile: drawer + bottom-tab view switching ────────────────────────────────
 function isMobile() { return window.matchMedia('(max-width: 768px)').matches; }
 
@@ -1644,6 +1661,7 @@ async function loadBillingSettings() {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  applyThemeLabel();
   await checkAuth();
   // Gate on subscription before anything else — paywall takes over the whole
   // screen and nothing else (onboarding, terminals) runs until they subscribe.

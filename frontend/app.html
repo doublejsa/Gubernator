@@ -6,6 +6,15 @@
   <title>Gubernator</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
   <link rel="stylesheet" href="/static/style.css"/>
+  <script>
+    /* Apply saved theme before first paint to avoid a flash. Default = light. */
+    (function () {
+      try {
+        var t = localStorage.getItem('gov_theme') || 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+    })();
+  </script>
 </head>
 <body>
   <div class="app" id="app" data-mview="chat">
@@ -44,6 +53,7 @@
 
       <div class="sidebar-footer">
         <span class="sidebar-user" id="bar-user"></span>
+        <button class="theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="Switch between light and dark"><span class="nav-ico" id="theme-toggle-ico">🌙</span><span class="nav-label" id="theme-toggle-label">Dark mode</span></button>
         <button class="nav-item" onclick="doLogout()" title="Sign out"><span class="nav-ico">↩</span><span class="nav-label">Sign out</span></button>
       </div>
     </aside>
