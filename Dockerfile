@@ -16,7 +16,7 @@ RUN pip install -r backend/requirements.txt
 # App code
 COPY backend /app/backend
 COPY frontend /app/frontend
-COPY prompt_guide.md run.py setup_paypal_plan.py send_trial_reminders.py /app/
+COPY prompt_guide.md run.py setup_paypal_plan.py setup_paypal_webhook.py send_trial_reminders.py /app/
 
 # Pre-download the embedding model at build time so first request isn't slow
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')" || true

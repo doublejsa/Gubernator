@@ -97,6 +97,29 @@ async def cancel_subscription(sub_id: str, reason: str = "User requested cancell
     await _api("POST", f"/v1/billing/subscriptions/{sub_id}/cancel", json={"reason": reason})
 
 
+WEBHOOK_EVENTS = [
+    "BILLING.SUBSCRIPTION.ACTIVATED",
+    "BILLING.SUBSCRIPTION.CANCELLED",
+    "BILLING.SUBSCRIPTION.SUSPENDED",
+    "BILLING.SUBSCRIPTION.EXPIRED",
+    "BILLING.SUBSCRIPTION.PAYMENT.FAILED",
+    "PAYMENT.SALE.COMPLETED",
+    "PAYMENT.SALE.DENIED",
+]
+
+async def ensure_webhook(url: str) -> str:
+    """Create (or reuse) a webhook for `url`, return its id. Idempotent."""
+    existing = await _api("GET", "/v1/notifications/webhooks")
+    for wh in existing.get("webhooks", []):
+        if wh.get("url") == url:
+            return wh["id"]
+    data = await _api("POST", "/v1/notifications/webhooks", json={
+        "url": url,
+        "event_types": [{"name": e} for e in WEBHOOK_EVENTS],
+    })
+    return data["id"]
+
+
 async def verify_webhook(headers: dict, body: dict) -> bool:
     """Verify a webhook came from PayPal. Returns True if SUCCESS (or if no
     webhook ID configured yet — dev fallback)."""
