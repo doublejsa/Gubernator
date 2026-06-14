@@ -65,5 +65,5 @@ PAYPAL_PLAN_ID    = os.getenv("PAYPAL_PLAN_ID", "")
 PAYPAL_WEBHOOK_ID = os.getenv("PAYPAL_WEBHOOK_ID", "")
 PAYPAL_API_BASE   = ("https://api-m.paypal.com" if PAYPAL_ENV == "live"
                      else "https://api-m.sandbox.paypal.com")
-PLAN_PRICE_USD    = "29.00"
-TRIAL_DAYS        = 14
+PLAN_PRICE_USD    = os.getenv("PLAN_PRICE_USD", "29.00")
+TRIAL_DAYS        = int(os.getenv("TRIAL_DAYS", "14"))

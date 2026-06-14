@@ -1549,7 +1549,10 @@ async function showPaywall() {
   pw.style.zIndex = '3000';
 
   const isReturning = ['past_due', 'expired', 'cancelled'].includes(b.status);
-  const days = b.trial_days || 14;
+  const price = b.price_usd || '29.00';
+  const days  = (b.trial_days != null) ? b.trial_days : 14;
+  const hasTrial = days > 0 && !isReturning;
+
   // First-charge date = trial_ends_at if known, else today + trial days
   const chargeDate = b.trial_ends_at ? new Date(b.trial_ends_at)
                                      : new Date(Date.now() + days * 86400000);
@@ -1557,16 +1560,29 @@ async function showPaywall() {
   const dateEl = document.getElementById('pw-charge-date');
   if (dateEl) dateEl.textContent = fmt;
 
-  if (isReturning) {
-    // Returning/lapsed user — no "free trial" framing, straight resubscribe
-    document.getElementById('pw-title').textContent    = 'Resume Gubernator';
-    document.getElementById('pw-headline').textContent = '$29/month';
-    document.getElementById('pw-subhead').textContent  =
-      b.status === 'past_due' ? 'Your last payment failed — reactivate to continue.'
-                              : 'Your subscription ended — reactivate to continue.';
-    ['pw-timeline', 'pw-zero', 'pw-benefits'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
-    document.getElementById('pw-choose').textContent = 'Choose how to pay:';
-    document.getElementById('pw-under').textContent  = 'Your subscription resumes immediately. Cancel anytime.';
+  const setText = (id, t) => { const e = document.getElementById(id); if (e) e.textContent = t; };
+  const hide    = (id)    => { const e = document.getElementById(id); if (e) e.style.display = 'none'; };
+  const show    = (id)    => { const e = document.getElementById(id); if (e) e.style.display = ''; };
+
+  if (hasTrial) {
+    setText('pw-title',    'Start your free trial');
+    setText('pw-headline', `Free for ${days} days`);
+    setText('pw-subhead',  `then $${price}/month · cancel anytime`);
+    show('pw-timeline'); show('pw-zero'); show('pw-benefits');
+    setText('pw-choose', 'Choose how to start your free trial:');
+    setText('pw-under',  "You won't be charged today — PayPal won't bill you until your trial ends. Cancel anytime before then and pay nothing.");
+  } else {
+    // No trial (immediate billing) or returning/lapsed user
+    setText('pw-title',    isReturning ? 'Resume Gubernator' : 'Subscribe to Gubernator');
+    setText('pw-headline', `$${price}/month`);
+    setText('pw-subhead',
+      isReturning ? (b.status === 'past_due' ? 'Your last payment failed — reactivate to continue.'
+                                             : 'Your subscription ended — reactivate to continue.')
+                  : 'cancel anytime');
+    hide('pw-timeline'); hide('pw-zero');
+    if (isReturning) hide('pw-benefits'); else show('pw-benefits');
+    setText('pw-choose', 'Choose how to pay:');
+    setText('pw-under',  `You'll be charged $${price} today. Cancel anytime from Settings.`);
   }
 
   if (!b.plan_id) {

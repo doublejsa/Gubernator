@@ -58,23 +58,27 @@ async def create_product() -> str:
     return data["id"]
 
 async def create_plan(product_id: str) -> str:
+    cycles = []
+    seq = 1
+    if TRIAL_DAYS > 0:
+        cycles.append({   # Free trial cycle
+            "frequency": {"interval_unit": "DAY", "interval_count": TRIAL_DAYS},
+            "tenure_type": "TRIAL", "sequence": seq, "total_cycles": 1,
+            "pricing_scheme": {"fixed_price": {"value": "0", "currency_code": "USD"}},
+        })
+        seq += 1
+    cycles.append({   # Regular monthly billing, indefinite
+        "frequency": {"interval_unit": "MONTH", "interval_count": 1},
+        "tenure_type": "REGULAR", "sequence": seq, "total_cycles": 0,
+        "pricing_scheme": {"fixed_price": {"value": PLAN_PRICE_USD, "currency_code": "USD"}},
+    })
+    trial_txt = f" after a {TRIAL_DAYS}-day free trial" if TRIAL_DAYS > 0 else ""
     data = await _api("POST", "/v1/billing/plans", json={
         "product_id": product_id,
-        "name": "Gubernator Monthly",
-        "description": f"Gubernator monthly subscription — ${PLAN_PRICE_USD}/mo after a {TRIAL_DAYS}-day free trial",
+        "name": f"Gubernator Monthly (${PLAN_PRICE_USD})",
+        "description": f"Gubernator monthly subscription — ${PLAN_PRICE_USD}/mo{trial_txt}",
         "status": "ACTIVE",
-        "billing_cycles": [
-            {   # Free trial cycle
-                "frequency": {"interval_unit": "DAY", "interval_count": TRIAL_DAYS},
-                "tenure_type": "TRIAL", "sequence": 1, "total_cycles": 1,
-                "pricing_scheme": {"fixed_price": {"value": "0", "currency_code": "USD"}},
-            },
-            {   # Regular monthly billing, indefinite
-                "frequency": {"interval_unit": "MONTH", "interval_count": 1},
-                "tenure_type": "REGULAR", "sequence": 2, "total_cycles": 0,
-                "pricing_scheme": {"fixed_price": {"value": PLAN_PRICE_USD, "currency_code": "USD"}},
-            },
-        ],
+        "billing_cycles": cycles,
         "payment_preferences": {
             "auto_bill_outstanding": True,
             "setup_fee": {"value": "0", "currency_code": "USD"},
