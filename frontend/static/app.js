@@ -913,6 +913,11 @@ function initChat() {
         resolveAction(msg.action_id, 'error-state', `✗ ${msg.message}`);
         feedSet(feedByAction[msg.action_id], '✗', undefined, 'error');
         break;
+      case 'action_dismissed':
+        // Internal self-correction — quietly retire the superseded action.
+        resolveAction(msg.action_id, 'dismissed', '');
+        feedSet(feedByAction[msg.action_id], '·', undefined, 'info');
+        break;
       case 'error':
         removeThinkingBubble();
         feedClearTransient();

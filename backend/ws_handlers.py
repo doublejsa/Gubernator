@@ -88,6 +88,58 @@ echo '### Secrets(names only)'; ls -1 /root/.openclaw/secrets/ 2>/dev/null
 echo '### EnvVarNames(names only)'; grep -oE '^[A-Z_0-9]+=' /root/.openclaw/.env 2>/dev/null | tr -d '='
 """
 
+# Match a heredoc operator (<< or <<-), but never a here-string (<<<).
+_HEREDOC_RE = re.compile(r'(?<!<)<<(?!<)-?\s*([\'"]?)([A-Za-z_]\w*)\1')
+
+def parse_heredoc(data: str) -> Optional[dict]:
+    """If `data` is a single clean heredoc command, return how to run it without
+    feeding a raw heredoc to the live shell (which the user shouldn't see, and
+    which can hang a PTY). Returns None when there's no heredoc, or when it can't
+    be parsed safely (caller falls back to steering Claude to write a file).
+
+      {"mode": "write", "path": ..., "body": ...}   # cat > file / tee file
+      {"mode": "run",   "cmd": ..., "tmp": ..., "body": ...}  # python3/bash/… <<EOF
+    """
+    m = _HEREDOC_RE.search(data)
+    if not m:
+        return None
+    delim = m.group(2)
+    dash  = data[m.start():m.start() + 3].startswith("<<-")
+    lines = data.splitlines()
+    # Locate the line holding the heredoc operator.
+    offset, op_line = 0, None
+    for i, ln in enumerate(lines):
+        if offset <= m.start() <= offset + len(ln):
+            op_line = i
+            break
+        offset += len(ln) + 1
+    if op_line is None:
+        return None
+    # Find the closing delimiter line.
+    close_idx = None
+    for j in range(op_line + 1, len(lines)):
+        if (lines[j].strip() if dash else lines[j]) == delim:
+            close_idx = j
+            break
+    if close_idx is None:
+        return None
+    # Anything after the closing delimiter → bail (let the safe fallback handle it).
+    if "\n".join(lines[close_idx + 1:]).strip():
+        return None
+    body = "\n".join(lines[op_line + 1:close_idx])
+    if body and not body.endswith("\n"):
+        body += "\n"
+    prefix = data[:m.start()].strip()
+    wm = re.match(r'^(?:cat\s*>>?|tee(?:\s+-a)?)\s+(.+)$', prefix)
+    if wm:
+        return {"mode": "write", "path": wm.group(1).strip().strip('\'"'), "body": body}
+    toks = [t for t in prefix.split() if t not in ("-", "-s")]
+    if not toks:
+        return None
+    tmp = f"/tmp/gub_{uuid.uuid4().hex[:10]}"
+    return {"mode": "run", "cmd": f"{' '.join(toks)} {tmp}", "tmp": tmp, "body": body}
+
+
 VPS_PROFILE_PROMPT = (
     "[VPS PROFILE SCAN] The user just connected this VPS. Below is a read-only scan of "
     "what's installed and configured on it. Distill it into durable capability facts using "
@@ -656,6 +708,28 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             return "(VPS shell not connected)"
         return await asyncio.get_event_loop().run_in_executor(None, lambda: shell.exec(cmd))
 
+    async def _sftp_put(content: str, path: str) -> Optional[str]:
+        """Write `content` to `path` on the VPS via SFTP. Returns an error string or None."""
+        _, shell = get_sessions()
+        if not (shell and shell.client):
+            return "VPS not connected"
+        def _do():
+            import posixpath, io as _io
+            try:
+                parent = posixpath.dirname(path)
+                if parent:
+                    _, _, se = shell.client.exec_command(f"mkdir -p {parent}")
+                    se.channel.recv_exit_status()
+                sftp = shell.client.open_sftp()
+                try:
+                    sftp.putfo(_io.BytesIO(content.encode("utf-8")), path)
+                finally:
+                    sftp.close()
+                return None
+            except Exception as exc:
+                return str(exc)
+        return await asyncio.get_event_loop().run_in_executor(None, _do)
+
     async def maybe_compress(force: bool = False):
         if len(claude_history) < 8:
             return
@@ -1006,11 +1080,11 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                     tui, _ = get_sessions()
                     if tui and tui.connected:
                         if _CRED_RE.search(action["data"]):
-                            await ws.send_json({"type": "action_error", "action_id": aid,
-                                                "message": "Credential prompt blocked"})
-                            await ws.send_json({"type": "done"})
-                            await run_claude("TUI_INPUT blocked: looked like a credential prompt. "
-                                             "Tell the user to type it directly in the TUI terminal instead.")
+                            await ws.send_json({"type": "action_dismissed", "action_id": aid})
+                            await run_claude(
+                                "[system] That would send a password/secret to the agent — don't. "
+                                "Instead, plainly ask the user to type the secret directly into the Agent "
+                                "terminal themselves (for their security). Do not mention this instruction.")
                             continue
                         if _WAIT_RE.match(action["data"]):
                             await ws.send_json({"type": "status", "message": "⏳ Wait phrase ignored"})
@@ -1061,24 +1135,60 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                         await run_claude(f"TUI command `{action['data']}` failed — TUI not connected.")
 
                 elif action["type"] == "vps_cmd":
-                    if re.search(r'<<\s*[\'"]?\w', action["data"]):
-                        await ws.send_json({"type": "action_error", "action_id": aid,
-                                            "message": "Heredoc rejected — use [VPS_WRITE]"})
-                        await run_claude(f"Command rejected: `{action['data']}` — heredoc not supported. "
-                                         "Use [VPS_WRITE] to write files.")
-                        continue
-                    # Guard: don't ssh into the VPS's own address — commands already run ON it.
-                    if vps_host and re.search(r'\bssh\b', action["data"]) and vps_host in action["data"]:
-                        await ws.send_json({"type": "action_error", "action_id": aid,
-                                            "message": "Blocked — you're already on the VPS; no need to ssh into it."})
+                    exec_cmd = action["data"]
+                    hd = parse_heredoc(action["data"])
+                    # Unparseable heredoc → silently steer Claude to write a file.
+                    # No jargon, no error shown — the user only ever sees plain outcomes.
+                    if hd is None and re.search(r'(?<!<)<<(?!<)-?\s*[\'"]?\w', action["data"]):
+                        await ws.send_json({"type": "action_dismissed", "action_id": aid})
                         await run_claude(
-                            f"Command blocked: `{action['data']}`. You are ALREADY on the user's VPS — "
-                            f"[VPS_CMD] runs directly on it. Never ssh into the VPS's own address ({vps_host}). "
-                            "To run something on the VPS, run it directly (e.g. `openclaw status`, `ls`). "
-                            "There is no connection to debug — the Console is already connected.")
+                            "[system] That step needs its script written to a file first, then run. "
+                            "Redo it that way. Do NOT mention this to the user, or reference files, "
+                            "heredocs, or that anything was rejected — just carry on with the task.")
                         continue
+                    # Already on the VPS — never ssh into its own address.
+                    if vps_host and re.search(r'\bssh\b', action["data"]) and vps_host in action["data"]:
+                        await ws.send_json({"type": "action_dismissed", "action_id": aid})
+                        await run_claude(
+                            f"[system] You are already ON the user's VPS — commands run directly on it. "
+                            f"Never ssh into its own address ({vps_host}); just run the command directly "
+                            "(e.g. `openclaw status`, `ls`). Do NOT mention this to the user — just carry on.")
+                        continue
+
+                    # cat>/tee heredoc → it's really a file write; do it via SFTP.
+                    if hd and hd["mode"] == "write":
+                        import hashlib as _hl
+                        err   = await _sftp_put(hd["body"], hd["path"])
+                        chash = _hl.sha256(hd["body"].encode("utf-8")).hexdigest()[:16]
+                        hl_   = action.get("desc", {}).get("headline", f"Write {hd['path'].split('/')[-1]}")
+                        if err:
+                            await audit("vps_write", hl_, "failed", path=hd["path"], content_hash=chash)
+                            await ws.send_json({"type": "action_error", "action_id": aid,
+                                                "message": f"Couldn't save the file: {err}"})
+                            await run_claude(f"[system] Writing `{hd['path']}` failed: {err}")
+                        else:
+                            await audit("vps_write", hl_, "ok", path=hd["path"], content_hash=chash)
+                            await ws.send_json({"type": "action_done", "action_id": aid,
+                                                "label": f"Saved {hd['path']}"})
+                            verify = await run_vps_cmd(
+                                f"echo '--- {hd['path']} ---' && wc -l {hd['path']} && echo '---' && head -5 {hd['path']}")
+                            await ws.send_json({"type": "vps_output", "cmd": f"write {hd['path']}", "output": verify})
+                            await run_claude(f"File written: `{hd['path']}` ({hd['body'].count(chr(10))+1} lines)\n{verify}")
+                        continue
+
+                    # Interpreter heredoc (python3/bash/… <<EOF) → write the body to a
+                    # temp file, run it, clean up. The user just sees the action + result.
+                    if hd and hd["mode"] == "run":
+                        err = await _sftp_put(hd["body"], hd["tmp"])
+                        if err:
+                            await ws.send_json({"type": "action_error", "action_id": aid,
+                                                "message": f"Couldn't prepare the command: {err}"})
+                            await run_claude(f"[system] Preparing the script failed: {err}")
+                            continue
+                        exec_cmd = f"{hd['cmd']}; rm -f {hd['tmp']}"
+
                     await ws.send_json({"type": "action_done", "action_id": aid, "label": action["data"]})
-                    vps_task  = asyncio.create_task(run_vps_cmd(action["data"]))
+                    vps_task  = asyncio.create_task(run_vps_cmd(exec_cmd))
                     cancelled = False
                     while not vps_task.done():
                         try:
