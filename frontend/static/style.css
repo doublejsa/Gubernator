@@ -574,6 +574,7 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
   box-shadow: 0 8px 28px var(--shadow); max-width: 92vw; text-align: center;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.error { background: var(--err-bg); border-color: var(--err-bd); color: var(--err-text); }
 
 /* ── Paywall / subscribe screen ────────────────────────────────────────────── */
 .pw-price { margin-bottom: 16px; }

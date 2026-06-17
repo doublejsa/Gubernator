@@ -365,6 +365,7 @@ async def save_credential(body: CredentialIn, user: User = Depends(get_current_u
         select(Credential).where(Credential.user_id == user.id, Credential.name == body.name)
     )
     cred = result.scalar_one_or_none()
+    was_synced = bool(cred.vps_synced) if cred else False
     if cred:
         cred.username     = body.username
         cred.password_enc = password_enc
@@ -378,7 +379,20 @@ async def save_credential(body: CredentialIn, user: User = Depends(get_current_u
         db.add(cred)
     await db.commit()
     await db.refresh(cred)
-    return {"id": str(cred.id), "name": cred.name}
+
+    # Sync to the VPS so the OpenClaw agent can actually read it as a file.
+    secret_path = f"{OPENCLAW_SECRETS_DIR}/{_safe_secret_name(cred.name)}"
+    sync_error  = None
+    if body.vps_synced:
+        sync_error = await _vps_sftp_put(
+            user, db, secret_path, _secret_file_body(body.username, body.password, body.notes))
+    elif was_synced:
+        await _vps_rm_secret(user, db, secret_path)   # user un-ticked sync → remove stale file
+
+    return {"id": str(cred.id), "name": cred.name,
+            "synced": bool(body.vps_synced and sync_error is None),
+            "secret_path": secret_path if body.vps_synced else None,
+            "sync_error": sync_error}
 
 @app.get("/api/credentials/{cred_id}/reveal")
 async def reveal_credential(cred_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -399,6 +413,8 @@ async def delete_credential(cred_id: uuid.UUID, user: User = Depends(get_current
     cred = result.scalar_one_or_none()
     if not cred:
         raise HTTPException(404)
+    if cred.vps_synced:
+        await _vps_rm_secret(user, db, f"{OPENCLAW_SECRETS_DIR}/{_safe_secret_name(cred.name)}")
     await db.delete(cred)
     await db.commit()
     return {"ok": True}
@@ -623,6 +639,68 @@ async def _vps_exec(user: User, db: AsyncSession, cmd: str, timeout: int = 60) -
         finally:
             c.close()
     return await asyncio.get_event_loop().run_in_executor(None, _run)
+
+
+# ── Vault → VPS sync (writes synced credentials to /root/.openclaw/secrets/) ──
+OPENCLAW_SECRETS_DIR = "/root/.openclaw/secrets"
+
+def _safe_secret_name(name: str) -> str:
+    keep = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+    s = "".join(ch if ch in keep else "_" for ch in name.strip())
+    return s.strip("._") or "secret"
+
+def _secret_file_body(username: str, password: str, notes: str) -> str:
+    """Readable by the agent (and the user): env-style when there's a username
+    (e.g. FTP user+pass), or the raw value for a bare secret (e.g. an API key)."""
+    if username:
+        lines = [f"USERNAME={username}", f"PASSWORD={password}"]
+        if notes:
+            lines.append(f"# {notes}")
+        return "\n".join(lines) + "\n"
+    return password + "\n"
+
+async def _vps_sftp_put(user: User, db: AsyncSession, path: str, content: str) -> Optional[str]:
+    """Write `content` to `path` on the user's VPS (0600). Returns error string or None.
+    Short-lived SSH, independent of the chat WebSocket."""
+    vps = (await db.execute(
+        select(VpsConnection).where(VpsConnection.user_id == user.id)
+        .order_by(VpsConnection.created_at)
+    )).scalars().first()
+    if not vps:
+        return "No VPS configured"
+    vault_key = get_user_vault_key(user)
+    password  = decrypt_secret(vault_key, vps.password_enc) if vps.password_enc else ""
+
+    def _run():
+        import posixpath, io as _io
+        c = paramiko.SSHClient()
+        c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            c.connect(vps.host, port=vps.port, username=vps.username, password=password, timeout=15)
+            parent = posixpath.dirname(path)
+            if parent:
+                _, o, _ = c.exec_command(f"mkdir -p {parent} && chmod 700 {parent}")
+                o.channel.recv_exit_status()
+            sftp = c.open_sftp()
+            try:
+                sftp.putfo(_io.BytesIO(content.encode("utf-8")), path)
+                try: sftp.chmod(path, 0o600)
+                except Exception: pass
+            finally:
+                sftp.close()
+            return None
+        except Exception as exc:
+            return str(exc)
+        finally:
+            c.close()
+    return await asyncio.get_event_loop().run_in_executor(None, _run)
+
+async def _vps_rm_secret(user: User, db: AsyncSession, path: str) -> None:
+    """Best-effort removal of a previously-synced secret file."""
+    try:
+        await _vps_exec(user, db, f"rm -f {shlex.quote(path)}", timeout=15)
+    except Exception:
+        pass
 
 
 @app.get("/api/skills/search")

@@ -1011,7 +1011,15 @@ async function saveCredential() {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, username: user, password: pass, notes, vps_synced: vps }),
   });
-  if (res.ok) { hideCredForm(); loadCredentials(); }
+  if (res.ok) {
+    const d = await res.json().catch(() => ({}));
+    hideCredForm(); loadCredentials();
+    if (vps && d.sync_error) {
+      showToast('Saved to your vault, but couldn’t reach the server to sync it — check the VPS is connected.', 'error');
+    } else if (vps && d.synced) {
+      showToast('Saved and synced to your server', 'success');
+    }
+  }
   else { const d = await res.json(); alert(d.detail || 'Save failed'); }
 }
 
