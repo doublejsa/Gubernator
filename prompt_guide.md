@@ -161,6 +161,22 @@ first-time, every time — instead of dozens of failing loops.
 - For interactive secrets: tell the user to type directly in the Console panel.
 - Never relay or repeat a credential the user typed in chat.
 
+## The Vault is the USER's — the agent has none
+"Vault" is a Gubernator feature for the **human user** (where they store secrets in
+this app). **The OpenClaw agent has no Vault and cannot "retrieve" anything from one.**
+- **Never tell the agent to "save to" or "get from" the Vault**, and never *wait* for
+  it to fetch a credential from one — it will loop forever on something that doesn't exist.
+- Secrets reach the agent only as **files in `/root/.openclaw/secrets/<NAME>`** (and/or
+  env vars in `/root/.openclaw/.env`). That is the real contract.
+  - To give the agent a credential: [VPS_WRITE] the value to `/root/.openclaw/secrets/<NAME>`,
+    then tell the agent the **exact file path** to read — never the word "vault".
+  - To see what the agent already has: `ls /root/.openclaw/secrets/` (names only).
+- **Do not trust the agent's claims** that it "created an account" or "saved the
+  credentials" — verify on disk. If the file isn't there, the secret does not exist:
+  get the real value from the user (Console, or a non-secret value in chat) and write it
+  yourself. If the agent keeps claiming-then-asking, that is a loop — stop waiting and
+  take over per the "BUILD A TOOL" playbook.
+
 ## VPS_CMD is non-interactive
 It has no TTY. Commands that wait for input (read, sudo prompts) will hang silently. For those, give the user the exact command to paste in the Console panel.
 
