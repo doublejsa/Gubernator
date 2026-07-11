@@ -350,25 +350,33 @@
       </div>
       <div class="modal-body">
 
-        <!-- Claude API Key -->
+        <!-- AI assistant (provider + API key) -->
         <div style="margin-bottom:24px">
-          <div style="font-size:13px;font-weight:600;margin-bottom:8px">🤖 Claude API Key</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">🤖 AI Assistant</div>
           <div class="vps-setup-info">
-            Your Anthropic API key — stored encrypted, never logged.<br/>
-            <strong>Required</strong> to use the Claude chat column.<br/>
-            Get one at <a href="https://console.anthropic.com/settings/api-keys" target="_blank" style="color:var(--accent)">console.anthropic.com</a>
+            Choose which AI runs your chat, and add its API key — stored encrypted, never logged.<br/>
+            <strong>Claude is recommended</strong> — Gubernator is tuned for it. Other providers are experimental.
           </div>
           <div class="cred-form" style="margin-top:12px">
             <div>
-              <label>API Key</label>
+              <label>Provider</label>
+              <select id="sf-provider" onchange="llmProviderChanged()"
+                      style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;font-family:inherit"></select>
+            </div>
+            <div>
+              <label>Model <span style="color:var(--dim)">(leave blank for the recommended default)</span></label>
+              <input id="sf-model" type="text" placeholder=""/>
+            </div>
+            <div>
+              <label>API Key <span style="color:var(--dim)">(get one at <a id="sf-key-url" href="#" target="_blank" style="color:var(--accent)">provider site</a>)</span></label>
               <div class="pw-row">
-                <input id="sf-apikey" type="password" placeholder="sk-ant-…"/>
+                <input id="sf-apikey" type="password" placeholder="sk-…"/>
                 <button class="pw-toggle" onclick="togglePw('sf-apikey',this)">👁</button>
               </div>
             </div>
             <div id="sf-apikey-status" style="font-size:12px;color:var(--dim)"></div>
             <div class="cred-form-actions">
-              <button class="btn-primary" onclick="saveApiKey()">Save API Key</button>
+              <button class="btn-primary" onclick="saveLlmSettings()">Save</button>
             </div>
           </div>
         </div>

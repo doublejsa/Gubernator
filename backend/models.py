@@ -24,6 +24,9 @@ class User(Base):
     trial_ends_at:          Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     current_period_end:     Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     trial_reminder_sent:    Mapped[bool]               = mapped_column(Boolean, default=False)
+    # LLM supervisor choice (Claude is the tuned default; others experimental)
+    llm_provider: Mapped[str]           = mapped_column(String, default="anthropic")
+    llm_model:    Mapped[Optional[str]] = mapped_column(String, nullable=True)
     created_at:   Mapped[datetime]  = mapped_column(DateTime, default=datetime.utcnow)
 
     vps_connections: Mapped[list["VpsConnection"]] = relationship(back_populates="user", cascade="all, delete-orphan")

@@ -68,6 +68,11 @@ async def startup():
         # pgvector must be enabled before tables with VECTOR columns are created
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight migrations — create_all never adds columns to existing tables
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_provider VARCHAR DEFAULT 'anthropic'"))
+        await conn.execute(text(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_model VARCHAR"))
 
 
 # ── Static files + SPA ───────────────────────────────────────────────────────
@@ -418,6 +423,55 @@ async def delete_credential(cred_id: uuid.UUID, user: User = Depends(get_current
     await db.delete(cred)
     await db.commit()
     return {"ok": True}
+
+
+# ── LLM provider settings ─────────────────────────────────────────────────────
+from backend.llm import PROVIDERS as LLM_PROVIDERS, normalize_provider
+
+class LlmSettingsIn(BaseModel):
+    provider: str
+    model:    str = ""
+    api_key:  str = ""     # optional — set/replace the key for this provider
+
+@app.get("/api/llm")
+async def get_llm_settings(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    creds = (await db.execute(
+        select(Credential.name).where(Credential.user_id == user.id))).scalars().all()
+    have = set(creds)
+    return {
+        "provider": normalize_provider(getattr(user, "llm_provider", None)),
+        "model":    getattr(user, "llm_model", None) or "",
+        "providers": [{
+            "id": pid, "label": cfg["label"], "default_model": cfg["default_model"],
+            "experimental": cfg["experimental"], "key_hint": cfg["key_hint"],
+            "key_url": cfg["key_url"], "has_key": cfg["cred"] in have,
+        } for pid, cfg in LLM_PROVIDERS.items()],
+    }
+
+@app.post("/api/llm")
+async def set_llm_settings(body: LlmSettingsIn, user: User = Depends(get_current_user),
+                           db: AsyncSession = Depends(get_db)):
+    provider = normalize_provider(body.provider)
+    cfg = LLM_PROVIDERS[provider]
+    if body.api_key.strip():
+        vault_key = get_user_vault_key(user)
+        enc = encrypt_secret(vault_key, body.api_key.strip())
+        cred = (await db.execute(
+            select(Credential).where(Credential.user_id == user.id,
+                                     Credential.name == cfg["cred"]))).scalar_one_or_none()
+        if cred:
+            cred.password_enc = enc
+        else:
+            db.add(Credential(user_id=user.id, name=cfg["cred"], username="",
+                              password_enc=enc, notes=f"{cfg['label']} API key",
+                              vps_synced=False))
+    user.llm_provider = provider
+    user.llm_model    = body.model.strip() or None
+    await db.commit()
+    creds = (await db.execute(
+        select(Credential.name).where(Credential.user_id == user.id))).scalars().all()
+    return {"ok": True, "provider": provider,
+            "has_key": cfg["cred"] in set(creds)}
 
 
 # ── Tasks (Activity panel) ────────────────────────────────────────────────────

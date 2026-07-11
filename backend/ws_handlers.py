@@ -36,7 +36,8 @@ def _action_signature(a: dict) -> str:
         return "write:" + (a.get("path") or "")[:50]
     return str(t)
 
-import anthropic as _anthropic
+from backend.llm import (LLMClient, PROVIDERS as LLM_PROVIDERS, normalize_provider,
+                         LLMRateLimit, LLMTimeout, LLMCredits, LLMStatusError)
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,15 +48,10 @@ from backend.vault import get_user_vault_key, decrypt_secret, encrypt_secret
 from backend.embeddings import embed
 from backend.audit import redact as _redact
 
-ANTHROPIC_KEY_CRED = "_anthropic_key"   # reserved credential name — per-user, stored in vault
-
 # ── Constants ─────────────────────────────────────────────────────────────────
 TMUX_SESSION        = "ocmgr-tui"
 CONTEXT_COMPRESS_AT = 100_000
 KEEP_RECENT_MSGS    = 14
-HAIKU_MODEL         = "claude-haiku-4-5-20251001"
-HAIKU_PRICE         = {"input": 0.80, "output": 4.00, "cache_read": 0.08, "cache_write": 1.00}
-HAIKU_CONTEXT_WINDOW = 200_000
 
 PROMPT_GUIDE_PATH = Path(__file__).parent.parent / "prompt_guide.md"
 _FALLBACK_PROMPT  = "You are Gubernator, an AI assistant helping manage AI agents on a remote VPS."
@@ -495,19 +491,27 @@ async def pty_ws_handler(ws: WebSocket, session: PTYSession,
 async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_ref: dict):
     await ws.accept()
 
-    # Each user must supply their own Anthropic API key — no server-level fallback.
-    vault_key = get_user_vault_key(user)
+    # Each user must supply their own API key for their chosen provider —
+    # no server-level fallback. Claude is the tuned default; others experimental.
+    vault_key    = get_user_vault_key(user)
+    llm_provider = normalize_provider(getattr(user, "llm_provider", None))
+    llm_cfg      = LLM_PROVIDERS[llm_provider]
     key_cred  = (await db.execute(
-        select(Credential).where(Credential.user_id == user.id, Credential.name == ANTHROPIC_KEY_CRED)
+        select(Credential).where(Credential.user_id == user.id, Credential.name == llm_cfg["cred"])
     )).scalar_one_or_none()
 
     if not key_cred:
-        await ws.send_json({"type": "error", "subtype": "no_api_key"})
+        await ws.send_json({"type": "error", "subtype": "no_api_key",
+                            "provider": llm_cfg["label"]})
         return
 
     effective_api_key = decrypt_secret(vault_key, key_cred.password_enc)
 
-    aclient = _anthropic.AsyncAnthropic(api_key=effective_api_key)
+    try:
+        llm = LLMClient(llm_provider, effective_api_key, getattr(user, "llm_model", None))
+    except RuntimeError as e:
+        await ws.send_json({"type": "error", "message": str(e)})
+        return
 
     # Load VPS credentials for this user — use first() to survive any accidental duplicates
     vps_result = await db.execute(
@@ -735,9 +739,8 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             return
         if not force:
             try:
-                count = await aclient.messages.count_tokens(
-                    model=HAIKU_MODEL, system=load_system_block(memory_block_text), messages=claude_history)
-                if count.input_tokens < CONTEXT_COMPRESS_AT:
+                tokens = await llm.count_tokens(load_system_block(memory_block_text), claude_history)
+                if tokens < CONTEXT_COMPRESS_AT:
                     return
             except Exception:
                 return
@@ -745,14 +748,14 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         to_compress = claude_history[:-KEEP_RECENT_MSGS]
         recent      = claude_history[-KEEP_RECENT_MSGS:]
         try:
-            resp = await aclient.messages.create(
-                model=HAIKU_MODEL, max_tokens=2048, system=load_system_block(memory_block_text),
-                messages=[*to_compress, {"role": "user", "content":
+            summary = await llm.complete(
+                load_system_block(memory_block_text),
+                [*to_compress, {"role": "user", "content":
                     "Write a concise but complete summary of our conversation so far. "
                     "Capture everything needed to continue: commands run, outputs, decisions made, current state."
                 }],
+                max_tokens=2048,
             )
-            summary = resp.content[0].text
         except Exception:
             return
         claude_history.clear()
@@ -776,29 +779,21 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         await ws.send_json({"type": "claude_start"})
         full = ""
         try:
-            async with aclient.messages.stream(
-                model=HAIKU_MODEL, max_tokens=4096,
-                system=load_system_block(memory_block_text), messages=claude_history,
-            ) as stream:
-                async for chunk in stream.text_stream:
-                    full += chunk
-                    await ws.send_json({"type": "chunk", "content": chunk})
-                final = await stream.get_final_message()
-                u     = final.usage
-                inp   = u.input_tokens
-                out   = u.output_tokens
-                cr    = getattr(u, "cache_read_input_tokens", 0) or 0
-                cw    = getattr(u, "cache_creation_input_tokens", 0) or 0
-                session_tokens += inp + out
-                session_cost   += (inp / 1e6 * HAIKU_PRICE["input"]  +
-                                   out / 1e6 * HAIKU_PRICE["output"] +
-                                   cr  / 1e6 * HAIKU_PRICE["cache_read"] +
-                                   cw  / 1e6 * HAIKU_PRICE["cache_write"])
-                await ws.send_json({"type": "stats",
-                    "session_tokens": int(session_tokens),
-                    "context_pct":    round(inp / HAIKU_CONTEXT_WINDOW * 100, 1),
-                    "session_cost":   round(session_cost, 4)})
-        except _anthropic.RateLimitError:
+            async def _on_chunk(chunk: str):
+                await ws.send_json({"type": "chunk", "content": chunk})
+            full, usage = await llm.stream(
+                load_system_block(memory_block_text), claude_history, 4096, _on_chunk)
+            inp, out = usage["input"], usage["output"]
+            session_tokens += inp + out
+            session_cost   += (inp / 1e6 * llm.price["input"]  +
+                               out / 1e6 * llm.price["output"] +
+                               usage["cache_read"]  / 1e6 * llm.price["cache_read"] +
+                               usage["cache_write"] / 1e6 * llm.price["cache_write"])
+            await ws.send_json({"type": "stats",
+                "session_tokens": int(session_tokens),
+                "context_pct":    round(inp / llm.context_window * 100, 1),
+                "session_cost":   round(session_cost, 4)})
+        except LLMRateLimit:
             await ws.send_json({"type": "claude_cancel"})
             if claude_history and claude_history[-1]["role"] == "user":
                 claude_history.pop()
@@ -810,7 +805,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             await asyncio.sleep(wait)
             await maybe_compress(force=True)
             return await stream_claude(user_content, _retry + 1)
-        except (_anthropic.APITimeoutError, _anthropic.APIConnectionError):
+        except LLMTimeout:
             await ws.send_json({"type": "claude_cancel"})
             if claude_history and claude_history[-1]["role"] == "user":
                 claude_history.pop()
@@ -820,16 +815,15 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             await ws.send_json({"type": "status", "message": "⏱ Timeout — retrying in 5s…"})
             await asyncio.sleep(5)
             return await stream_claude(user_content, _retry + 1)
-        except _anthropic.APIStatusError as e:
+        except LLMCredits as e:
             await ws.send_json({"type": "claude_cancel"})
-            body    = e.body if isinstance(e.body, dict) else {}
-            err_msg = (body.get("error", {}) or {}).get("message", str(e))
-            if "credit balance is too low" in err_msg or "credit" in err_msg.lower():
-                if claude_history and claude_history[-1]["role"] == "user":
-                    claude_history.pop()
-                await ws.send_json({"type": "error", "subtype": "credits_exhausted", "message": err_msg})
-            else:
-                await ws.send_json({"type": "error", "message": f"API error {e.status_code}: {err_msg}"})
+            if claude_history and claude_history[-1]["role"] == "user":
+                claude_history.pop()
+            await ws.send_json({"type": "error", "subtype": "credits_exhausted", "message": str(e)})
+            return ""
+        except LLMStatusError as e:
+            await ws.send_json({"type": "claude_cancel"})
+            await ws.send_json({"type": "error", "message": f"API error {e.status_code}: {e.message}"})
             return ""
         except Exception as e:
             await ws.send_json({"type": "error", "message": str(e)})

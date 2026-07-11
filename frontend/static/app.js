@@ -686,14 +686,14 @@ ${reason}<br><br>
   scrollChat();
 }
 
-function addNoApiKeyBubble() {
+function addNoApiKeyBubble(provider) {
+  const label = provider || 'Claude (Anthropic)';
   const el = document.createElement('div');
   el.className = 'bubble credits-error';
   el.innerHTML = `
-🔑 <strong>Claude API key not set</strong><br><br>
-Gubernator needs your Anthropic API key to use Claude.<br><br>
-<button class="retry-btn" onclick="openSettingsModal()" style="margin-bottom:10px">⚙️ Open Settings to add it</button><br>
-Or get a key at <a href="https://console.anthropic.com/settings/api-keys" target="_blank">console.anthropic.com</a>
+🔑 <strong>${esc(label)} API key not set</strong><br><br>
+Gubernator needs your ${esc(label)} API key to power the chat.<br><br>
+<button class="retry-btn" onclick="openSettingsModal()" style="margin-bottom:10px">⚙️ Open Settings to add it</button>
   `.trim();
   document.getElementById('chat-messages').appendChild(el);
   scrollChat();
@@ -924,7 +924,7 @@ function initChat() {
         if (currentClaudeBubble) { currentClaudeBubble.remove(); currentClaudeBubble = null; }
         if (msg.subtype === 'credits_exhausted') addCreditsBubble();
         else if (msg.subtype === 'rate_limit')   addRateLimitBubble();
-        else if (msg.subtype === 'no_api_key')   addNoApiKeyBubble();
+        else if (msg.subtype === 'no_api_key')   addNoApiKeyBubble(msg.provider);
         else if (msg.subtype === 'auth_expired') { localStorage.removeItem('gov_token'); location.href = '/'; }
         else if (msg.subtype === 'subscription_required') { showPaywall(); }
         else addFriendlyError(msg.message || 'Unknown error');
@@ -1477,33 +1477,54 @@ async function deleteMemory(id) {
 }
 
 // ── Settings modal ────────────────────────────────────────────────────────────
+let llmSettings = null;   // cached /api/llm payload
+
 async function openSettingsModal() {
   openModal('settings-modal');
   loadBillingSettings();
-  // Show whether a key is already saved
-  const res   = await fetch('/api/credentials');
-  const creds = await res.json();
-  const has   = creds.some(c => c.name === '_anthropic_key');
-  const status = document.getElementById('sf-apikey-status');
-  status.textContent = has ? '✓ API key saved' : '✗ No API key saved yet';
-  status.style.color = has ? 'var(--green)' : 'var(--orange)';
+  llmSettings = await (await fetch('/api/llm')).json();
+  const sel = document.getElementById('sf-provider');
+  sel.innerHTML = llmSettings.providers.map(p =>
+    `<option value="${p.id}">${esc(p.label)}${p.experimental ? ' — experimental' : ' — recommended'}</option>`
+  ).join('');
+  sel.value = llmSettings.provider;
+  document.getElementById('sf-model').value = llmSettings.model || '';
+  llmProviderChanged();
 }
 
-async function saveApiKey() {
-  const key = document.getElementById('sf-apikey').value.trim();
-  if (!key || !key.startsWith('sk-')) { alert('Enter a valid Anthropic API key (starts with sk-)'); return; }
-  const res = await fetch('/api/credentials', {
+function llmProviderChanged() {
+  if (!llmSettings) return;
+  const p = llmSettings.providers.find(x => x.id === document.getElementById('sf-provider').value);
+  if (!p) return;
+  document.getElementById('sf-model').placeholder  = p.default_model;
+  document.getElementById('sf-apikey').placeholder = p.key_hint;
+  document.getElementById('sf-key-url').href       = p.key_url;
+  const status = document.getElementById('sf-apikey-status');
+  status.textContent = p.has_key ? `✓ ${p.label} API key saved` : `✗ No ${p.label} API key saved yet`;
+  status.style.color = p.has_key ? 'var(--green)' : 'var(--orange)';
+}
+
+async function saveLlmSettings() {
+  const provider = document.getElementById('sf-provider').value;
+  const model    = document.getElementById('sf-model').value.trim();
+  const key      = document.getElementById('sf-apikey').value.trim();
+  const p        = llmSettings && llmSettings.providers.find(x => x.id === provider);
+  if (key === '' && p && !p.has_key) { alert('Enter the API key for this provider'); return; }
+  const res = await fetch('/api/llm', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: '_anthropic_key', username: '', password: key, notes: 'Anthropic API key', vps_synced: false }),
+    body: JSON.stringify({ provider, model, api_key: key }),
   });
   if (res.ok) {
     document.getElementById('sf-apikey').value = '';
-    document.getElementById('sf-apikey-status').textContent = '✓ Saved — reconnect Claude to use it';
-    document.getElementById('sf-apikey-status').style.color = 'var(--green)';
-    // Reconnect the chat WebSocket to pick up the new key
+    const status = document.getElementById('sf-apikey-status');
+    status.textContent = '✓ Saved — reconnecting…';
+    status.style.color = 'var(--green)';
+    // Reconnect the chat WebSocket so it picks up the new provider/key
     if (chatWs) { chatWs.close(); }
+    llmSettings = await (await fetch('/api/llm')).json();
+    llmProviderChanged();
   } else {
-    alert('Failed to save API key');
+    alert('Failed to save AI settings');
   }
 }
 
