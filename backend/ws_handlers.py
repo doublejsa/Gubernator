@@ -196,11 +196,49 @@ _BUSY_KEYWORDS = (
     'processing', 'esc to interrupt', 'thinking',
 )
 
+# OpenClaw's persistent status bar, e.g.
+#   "⋮ moseying… • 37463m 20s | connected — agent main | session main | tokens 42k/200k (21%)"
+# The gerund + counter live there even when the agent is idle (the counter is
+# session uptime, not work time) — so the footer alone must never mean "busy"
+# unless its elapsed counter is plausible for a single response.
+_FOOTER_LINE_RE    = re.compile(
+    r'(?m)^.*(tokens\s+\d+[km]?/\d+[km]?'
+    r'|agent\s+\w+\s*\|\s*session'
+    r'|•\s*\d+m(?:\s+\d+s)?\s*\|\s*connected).*$')
+_FOOTER_ELAPSED_RE = re.compile(r'(\d+)m(?:\s+\d+s)?\s*\|')
+_STALE_BUSY_MINUTES = 30   # no single response runs this long — counter is uptime
+
 def is_agent_busy(screen: str) -> bool:
     """True if the agent appears to be actively working."""
-    lower = screen.lower()
-    return (any(c in screen for c in _AGENT_SPINNER) or
-            any(kw in lower for kw in _BUSY_KEYWORDS))
+    body  = _FOOTER_LINE_RE.sub('', screen)
+    lower = body.lower()
+    if any(c in body for c in _AGENT_SPINNER) or any(kw in lower for kw in _BUSY_KEYWORDS):
+        return True
+    # Busy words on the footer line count only while its counter is plausible.
+    for line in screen.splitlines():
+        ll = line.lower()
+        if any(kw in ll for kw in _BUSY_KEYWORDS):
+            m = _FOOTER_ELAPSED_RE.search(line)
+            if m and int(m.group(1)) >= _STALE_BUSY_MINUTES:
+                continue
+            return True
+    return False
+
+_QUESTION_HINTS = ('which would you', 'would you like', 'do you want', 'let me know',
+                   'you provide', 'can you', 'your call', '(y/n)', 'yes/no')
+
+def agent_awaits_reply(screen: str) -> bool:
+    """True if the (idle) agent's last words look like a question to the user."""
+    body = _FOOTER_LINE_RE.sub('', screen)
+    tail = [l.strip() for l in body.splitlines()
+            if l.strip() and not re.fullmatch(r'[\s│┃|>─━┌┐└┘╭╮╰╯·⋮_-]+', l.strip())]
+    # A short typed-but-unsent word (e.g. "stop") can sit below the question,
+    # so scan the last few visible lines rather than only the very last one.
+    for line in tail[-3:]:
+        l = line.lower().rstrip(' )"\'.]…')
+        if l.endswith('?') or any(h in l for h in _QUESTION_HINTS):
+            return True
+    return False
 
 def determine_agent_status(screen: str) -> dict:
     """Map TUI screen content to a plain-English agent status."""
@@ -214,6 +252,10 @@ def determine_agent_status(screen: str) -> dict:
         'authentication required', 'enter the password', 'enter password',
     ]):
         return {"code": "needs_input", "color": "red",    "label": "Agent needs your input"}
+
+    # Needs input — the agent finished by asking the user a question
+    if not busy and agent_awaits_reply(screen):
+        return {"code": "needs_input", "color": "red",    "label": "Agent asked you a question"}
 
     # Browsing — browser/web activity (more specific than generic 'thinking')
     if any(kw in lower for kw in [
