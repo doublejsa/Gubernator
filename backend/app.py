@@ -757,6 +757,14 @@ async def _vps_rm_secret(user: User, db: AsyncSession, path: str) -> None:
         pass
 
 
+@app.post("/api/agent/restart-view")
+async def restart_agent_view(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Kill the agent's terminal view (tmux session). The agent itself keeps
+    running — the panel auto-reconnects and opens a fresh view."""
+    out = await _vps_exec(user, db, "tmux kill-session -t ocmgr-tui 2>&1 || true", timeout=15)
+    return {"ok": True, "output": out.strip()}
+
+
 @app.get("/api/skills/search")
 async def skills_search(q: str = "", user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Search the ClawHub catalog and mark which results are already installed."""

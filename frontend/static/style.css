@@ -376,7 +376,7 @@ html, body {
 #col-chat { background: var(--bg); }
 
 .chat-messages {
-  flex: 1; overflow-y: auto; padding: 20px 18px;
+  flex: 1; overflow-y: auto; padding: 20px 18px 32px;
   display: flex; flex-direction: column; gap: 14px;
   user-select: text; -webkit-user-select: text;
 }
@@ -475,7 +475,7 @@ html, body {
 .action-buttons { display: flex; gap: 8px; }
 .btn-confirm, .btn-dismiss { padding: 5px 18px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid; transition: opacity 0.15s; }
 .btn-confirm:hover, .btn-dismiss:hover    { opacity: 0.75; }
-.btn-confirm:disabled, .btn-dismiss:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-confirm:disabled, .btn-dismiss:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-confirm { background: var(--ok-bg); border-color: var(--green); color: var(--green); }
 .btn-dismiss { background: transparent; border-color: var(--border); color: var(--dim); }
 .action-result { font-size: 11px; color: var(--dim); margin-top: 8px; }

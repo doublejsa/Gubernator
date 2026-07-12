@@ -183,6 +183,17 @@ function toggleSidebar() {
   setTimeout(reflowTerminals, 240);
 }
 
+// ── Agent view reset ──────────────────────────────────────────────────────────
+async function restartAgentView() {
+  if (!confirm('Reset the agent view? The agent keeps running — this just refreshes the display.')) return;
+  try {
+    await fetch('/api/agent/restart-view', { method: 'POST' });
+    showToast('Agent view reset — reconnecting…', 'success');
+  } catch (e) {
+    showToast('Couldn’t reset the view — check the VPS connection', 'error');
+  }
+}
+
 // ── Theme (light / dark) ──────────────────────────────────────────────────────
 function applyThemeLabel() {
   const t = document.documentElement.getAttribute('data-theme') || 'light';
@@ -644,11 +655,19 @@ function resolveAction(id, state, label) {
   const res = document.getElementById(`result-${id}`);
   if (res && label) res.textContent = label;
 }
+let queuedConfirm = null;
 function confirmAction(id) {
-  if (sending) return;
+  if (sending) {
+    // Claude is busy — queue it instead of swallowing the click
+    queuedConfirm = id;
+    const res = document.getElementById(`result-${id}`);
+    if (res) res.textContent = '⏳ Queued — runs as soon as Claude finishes';
+    return;
+  }
   sending = true;
   document.getElementById('chat-send').disabled = true;
-  setActionButtonsDisabled(true);
+  // Only lock THIS bubble's buttons (prevents double-click); others stay clickable
+  document.querySelectorAll(`#action-${id} button`).forEach(b => b.disabled = true);
   thinkingBubble = addThinkingBubble();
   chatWs.send(JSON.stringify({ type: 'confirm', action_id: id }));
 }
@@ -860,15 +879,23 @@ function initChat() {
         document.getElementById('tui-cancel-btn').style.display = 'none';
         document.getElementById('claude-cancel-btn').style.display = 'none';
         if (msg.clean_text !== undefined) {
-          if (!currentClaudeBubble) currentClaudeBubble = addBubble('claude', '');
-          currentClaudeBubble.innerHTML = formatClaudeMessage(msg.clean_text);
+          if (msg.clean_text.trim()) {
+            if (!currentClaudeBubble) currentClaudeBubble = addBubble('claude', '');
+            currentClaudeBubble.innerHTML = formatClaudeMessage(msg.clean_text);
+          } else if (currentClaudeBubble) {
+            currentClaudeBubble.remove();   // reply was all action tags — no empty bubble
+          }
+        } else if (currentClaudeBubble && !currentClaudeBubble.textContent.trim()) {
+          currentClaudeBubble.remove();
         }
         currentClaudeBubble = null; sending = false;
         setActionButtonsDisabled(false);
         document.getElementById('chat-send').disabled = false;
         document.getElementById('chat-input').focus();
+        // An Allow was queued while busy — run it now that we're unlocked
+        if (queuedConfirm) { const q = queuedConfirm; queuedConfirm = null; setTimeout(() => confirmAction(q), 120); }
         // A Check-agent request was queued while busy — run it now that we're unlocked
-        if (pendingCheck) { pendingCheck = false; setTimeout(checkAgent, 120); }
+        else if (pendingCheck) { pendingCheck = false; setTimeout(checkAgent, 120); }
         // Claude said it's waiting on the agent — surface a manual check button
         else if (msg.awaiting_agent) addCheckAgentPrompt();
         break;
