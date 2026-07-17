@@ -37,6 +37,41 @@ function setStatus(col, state, label) {
 }
 
 // ── Terminal init ─────────────────────────────────────────────────────────────
+// ── Multi-bot state ───────────────────────────────────────────────────────────
+let bots        = [];                                              // /api/vps rows
+let activeBotId = localStorage.getItem('gov_active_bot') || '';    // scopes everything
+
+function vpsParam(sep) { return activeBotId ? `${sep}vps_id=${encodeURIComponent(activeBotId)}` : ''; }
+
+async function loadBots() {
+  try { bots = await (await fetch('/api/vps')).json(); } catch (e) { bots = []; }
+  if (!bots.find(b => b.id === activeBotId)) {
+    activeBotId = bots.length ? bots[0].id : '';
+    if (activeBotId) localStorage.setItem('gov_active_bot', activeBotId);
+  }
+  renderBots();
+}
+
+function renderBots() {
+  const list = document.getElementById('bots-list');
+  if (!list) return;
+  list.innerHTML = bots.map(b => `
+    <button class="nav-item bot-item ${b.id === activeBotId ? 'active' : ''}" onclick="switchBot('${b.id}')"
+            title="${esc(b.agent_label)} on ${esc(b.host)}">
+      <span class="nav-ico">${b.agent_icon || '🤖'}</span><span class="nav-label">${esc(b.label)}</span>
+    </button>`).join('')
+    + (bots.length < 3 ? `<button class="nav-item" onclick="openVpsModal()" title="Connect another bot"><span class="nav-ico">＋</span><span class="nav-label">Add bot</span></button>` : '');
+  const active = bots.find(b => b.id === activeBotId);
+  const sub = document.getElementById('agent-subtitle');
+  if (sub && active) sub.textContent = `powered by ${active.agent_label}`;
+}
+
+function switchBot(id) {
+  if (id === activeBotId) { hideOverview(); return; }
+  localStorage.setItem('gov_active_bot', id);
+  location.reload();   // all sockets + panels reconnect scoped to the new bot
+}
+
 function initTerminal(wrapperId, wsPath, col) {
   const term = new Terminal({
     theme: { background: '#000000', foreground: '#e6edf3', cursor: '#58a6ff',
@@ -55,7 +90,7 @@ function initTerminal(wrapperId, wsPath, col) {
   let fatalError = false;
 
   function connect() {
-    const url = `${WS_PROTO}://${HOST}${wsPath}?token=${encodeURIComponent(authToken)}`;
+    const url = `${WS_PROTO}://${HOST}${wsPath}?token=${encodeURIComponent(authToken)}${vpsParam('&')}`;
     const ws  = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     handle.ws = ws;
@@ -183,11 +218,108 @@ function toggleSidebar() {
   setTimeout(reflowTerminals, 240);
 }
 
+// ── Overview (all bots) ───────────────────────────────────────────────────────
+let ovHistory = [];   // cross-bot chat history, session-local
+
+function showOverview() {
+  document.getElementById('app').classList.add('overview-open');
+  document.getElementById('overview-view').style.display = 'flex';
+  ['col-chat', 'whats-happening', 'right-panel'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
+  document.querySelectorAll('.v-divider').forEach(el => el.style.display = 'none');
+  document.getElementById('overview-btn').classList.add('active');
+  if (isMobile()) closeDrawer();
+  loadOverview();
+}
+
+function hideOverview() {
+  const ov = document.getElementById('overview-view');
+  if (!ov || ov.style.display === 'none') return;
+  ov.style.display = 'none';
+  document.getElementById('app').classList.remove('overview-open');
+  document.getElementById('overview-btn').classList.remove('active');
+  location.reload();   // simplest way to restore the column layout + terminals cleanly
+}
+
+async function loadOverview() {
+  const cards = document.getElementById('ov-cards');
+  cards.innerHTML = '<div class="empty-state">Loading…</div>';
+  let data;
+  try { data = await (await fetch('/api/overview')).json(); }
+  catch (e) { cards.innerHTML = '<div class="empty-state">Couldn’t load overview</div>'; return; }
+  if (!data.bots.length) {
+    cards.innerHTML = '<div class="empty-state">No bots yet — click “＋ Add bot” in the sidebar.</div>';
+    return;
+  }
+  cards.innerHTML = data.bots.map(b => {
+    const t7 = b.tasks_7d, c7 = b.cmds_7d;
+    const health = t7.failed + c7.failed > (t7.done + c7.ok) ? '🔴'
+                 : (t7.failed + c7.failed > 0 ? '🟡' : '🟢');
+    const last = b.last_activity ? new Date(b.last_activity).toLocaleDateString(undefined, {day:'numeric',month:'short'}) : 'no activity yet';
+    return `
+    <div class="ov-card ${b.id === activeBotId ? 'active' : ''}" onclick="switchBot('${b.id}')" title="Open this bot">
+      <div class="ov-card-head">
+        <span class="ov-card-icon">${b.agent_icon}</span>
+        <div><div class="ov-card-name">${esc(b.label)}</div>
+             <div class="ov-card-sub">${esc(b.agent_label)} · ${esc(b.host)}</div></div>
+        <span class="ov-card-health">${health}</span>
+      </div>
+      <div class="ov-stats">
+        <div class="ov-stat"><span class="ov-num">${t7.done}</span><span class="ov-lbl">tasks done · 7d</span></div>
+        <div class="ov-stat"><span class="ov-num">${t7.failed}</span><span class="ov-lbl">failed · 7d</span></div>
+        <div class="ov-stat"><span class="ov-num">${c7.ok}</span><span class="ov-lbl">commands ok</span></div>
+        <div class="ov-stat"><span class="ov-num">${c7.failed}</span><span class="ov-lbl">commands failed</span></div>
+      </div>
+      <div class="ov-card-foot">30d: ${b.tasks_30d.done} done, ${b.tasks_30d.failed} failed · last activity ${last}</div>
+    </div>`;
+  }).join('');
+}
+
+function ovBubble(role, text) {
+  const box = document.getElementById('ov-chat-messages');
+  const el  = document.createElement('div');
+  el.className = `bubble ${role === 'user' ? 'you' : 'claude'}`;
+  if (role === 'user') el.textContent = text;
+  else el.innerHTML = formatClaudeMessage(text);
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+
+async function ovAsk(preset) {
+  const input = document.getElementById('ov-input');
+  const q = (preset || input.value).trim();
+  if (!q) return;
+  if (!preset) input.value = '';
+  ovBubble('user', q);
+  const wait = ovBubble('assistant', '…thinking');
+  document.getElementById('ov-send').disabled = true;
+  try {
+    const res = await fetch('/api/overview/ask', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q, history: ovHistory }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || 'Request failed');
+    wait.innerHTML = formatClaudeMessage(d.answer);
+    ovHistory.push({ role: 'user', content: q }, { role: 'assistant', content: d.answer });
+    ovHistory = ovHistory.slice(-8);
+  } catch (e) {
+    wait.innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`;
+  }
+  document.getElementById('ov-send').disabled = false;
+}
+
+function ovRecommend() {
+  ovAsk('Compare my bots and recommend which is best for which kind of work, based on my data. Call out anything that needs attention.');
+}
+
 // ── Agent view reset ──────────────────────────────────────────────────────────
 async function restartAgentView() {
   if (!confirm('Reset the agent view? The agent keeps running — this just refreshes the display.')) return;
   try {
-    await fetch('/api/agent/restart-view', { method: 'POST' });
+    await fetch(`/api/agent/restart-view?${vpsParam('')}`, { method: 'POST' });
     showToast('Agent view reset — reconnecting…', 'success');
   } catch (e) {
     showToast('Couldn’t reset the view — check the VPS connection', 'error');
@@ -840,7 +972,7 @@ function sendMessage() {
 
 // ── Chat WebSocket ────────────────────────────────────────────────────────────
 function initChat() {
-  const url = `${WS_PROTO}://${HOST}/ws/chat?token=${encodeURIComponent(authToken)}`;
+  const url = `${WS_PROTO}://${HOST}/ws/chat?token=${encodeURIComponent(authToken)}${vpsParam('&')}`;
   chatWs = new WebSocket(url);
   chatWs.onopen  = () => setStatus('chat', 'connected', 'Ready');
   chatWs.onclose = () => { setStatus('chat', 'error', 'Disconnected'); setTimeout(initChat, 3000); };
@@ -1065,18 +1197,38 @@ function togglePw(inputId, btn) {
 // ── VPS modal ─────────────────────────────────────────────────────────────────
 async function openVpsModal() {
   openModal('vps-modal');
-  const res  = await fetch('/api/vps');
-  const vpss = await res.json();
+  const vpss = await (await fetch('/api/vps')).json();
   const list = document.getElementById('vps-list');
   if (vpss.length) {
     list.innerHTML = vpss.map(v => `
       <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:13px">
-        <span style="flex:1"><strong>${esc(v.label)}</strong> — ${esc(v.username)}@${esc(v.host)}:${v.port}</span>
+        <span style="flex:1">${v.agent_icon || '🤖'} <strong>${esc(v.label)}</strong> — ${esc(v.username)}@${esc(v.host)}:${v.port}
+          <span style="color:var(--dim)">(${esc(v.agent_label || 'OpenClaw')})</span></span>
+        <button class="cred-btn" onclick="editVpsRow('${v.id}','${esc(v.label)}','${esc(v.host)}',${v.port},'${esc(v.username)}','${v.agent_type || 'openclaw'}')">Edit</button>
         <button class="cred-btn danger" onclick="deleteVps('${v.id}','${esc(v.label)}')">Delete</button>
       </div>`).join('');
   } else {
-    list.innerHTML = '<p style="color:var(--dim);font-size:12px;margin-top:12px">No VPS configured yet.</p>';
+    list.innerHTML = '<p style="color:var(--dim);font-size:12px;margin-top:12px">No bots configured yet.</p>';
   }
+}
+
+function editVpsRow(id, label, host, port, user, agent) {
+  document.getElementById('vf-id').value    = id;
+  document.getElementById('vf-label').value = label;
+  document.getElementById('vf-host').value  = host;
+  document.getElementById('vf-port').value  = port;
+  document.getElementById('vf-user').value  = user;
+  document.getElementById('vf-agent').value = agent;
+  document.getElementById('vf-pass').value  = '';
+  document.getElementById('vf-cancel').style.display = '';
+  document.getElementById('vf-pass').focus();
+}
+
+function resetVpsForm() {
+  ['vf-id','vf-label','vf-host','vf-user','vf-pass'].forEach(i => document.getElementById(i).value = '');
+  document.getElementById('vf-port').value  = '22';
+  document.getElementById('vf-agent').value = 'openclaw';
+  document.getElementById('vf-cancel').style.display = 'none';
 }
 
 async function saveVps() {
@@ -1085,16 +1237,20 @@ async function saveVps() {
   const user  = document.getElementById('vf-user').value.trim()||'root';
   const pass  = document.getElementById('vf-pass').value;
   const label = document.getElementById('vf-label').value.trim()||'My VPS';
+  const agent = document.getElementById('vf-agent').value;
+  const vpsId = document.getElementById('vf-id').value;
   if (!host || !pass) { alert('Host and password are required'); return; }
   const res = await fetch('/api/vps', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ label, host, port, username: user, password: pass }),
+    body: JSON.stringify({ label, host, port, username: user, password: pass,
+                           agent_type: agent, vps_id: vpsId }),
   });
   if (res.ok) {
+    const d = await res.json();
+    localStorage.setItem('gov_active_bot', d.id);   // jump to the saved bot
     closeModal('vps-modal');
-    // Remove any existing error bubble and reload so terminals reconnect fresh
     document.querySelectorAll('.vps-error-bubble').forEach(el => el.remove());
-    addBubble('status', '✅ VPS saved — reconnecting…');
+    addBubble('status', '✅ Bot saved — reconnecting…');
     setTimeout(() => location.reload(), 500);
   } else {
     const d = await res.json(); alert(d.detail || 'Save failed');
@@ -1246,7 +1402,7 @@ async function loadAudit() {
   const list = document.getElementById('audit-list');
   list.innerHTML = '<p class="empty-state">Loading…</p>';
   try {
-    const rows = await (await fetch('/api/audit')).json();
+    const rows = await (await fetch(`/api/audit?${vpsParam('')}`)).json();
     if (!rows.length) {
       list.innerHTML = '<p class="empty-state">No commands recorded yet.</p>';
       return;
@@ -1282,7 +1438,7 @@ async function openActivityModal() {
 }
 
 async function loadActivity() {
-  const tasks = await (await fetch('/api/tasks')).json();
+  const tasks = await (await fetch(`/api/tasks?${vpsParam('')}`)).json();
   const list  = document.getElementById('activity-list');
   if (!tasks.length) {
     list.innerHTML = '<p class="empty-state">No activity yet. As your agent completes tasks, they\'ll appear here.</p>';
@@ -1459,7 +1615,7 @@ async function openMemoryModal() {
 }
 
 async function loadMemory() {
-  const facts = await (await fetch('/api/memory')).json();
+  const facts = await (await fetch(`/api/memory?${vpsParam('')}`)).json();
   const list  = document.getElementById('memory-list');
   if (!facts.length) {
     list.innerHTML = '<p class="empty-state">Nothing remembered yet. Claude will add facts as it learns about your setup.</p>';
@@ -1492,7 +1648,7 @@ async function saveMemory() {
   if (!key || !value) { alert('Key and value are required'); return; }
   const res = await fetch('/api/memory', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key, value, category: cat }),
+    body: JSON.stringify({ key, value, category: cat, vps_id: activeBotId }),
   });
   if (res.ok) { hideMemoryForm(); loadMemory(); }
   else alert('Save failed');
@@ -1764,6 +1920,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   applySidebarState();
   updateAgentSubtitle();
   loadIdeas();
+  await loadBots();   // must resolve the active bot before sockets connect
 
   const tui   = initTerminal('tui-terminal',   '/ws/tui',   'tui');
   const shell = initTerminal('shell-terminal', '/ws/shell', 'shell');

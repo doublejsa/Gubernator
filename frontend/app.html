@@ -34,6 +34,12 @@
         <span class="sidebar-logo">⚙️ Gubernator</span>
       </div>
 
+      <div class="sidebar-bots">
+        <div class="sidebar-heading">🤖 Bots</div>
+        <div id="bots-list"></div>
+        <button class="nav-item" id="overview-btn" onclick="showOverview()" title="All bots at a glance"><span class="nav-ico">📊</span><span class="nav-label">Overview</span></button>
+      </div>
+
       <nav class="sidebar-nav">
         <button class="nav-item nav-build-tool" onclick="buildTool()" title="Turn a stuck / repeatable task into a reliable script"><span class="nav-ico">🔧</span><span class="nav-label">Build a tool</span></button>
         <button class="nav-item" onclick="openActivityModal()" title="Activity"><span class="nav-ico">📋</span><span class="nav-label">Activity</span></button>
@@ -61,6 +67,28 @@
     <!-- ── Main area ─────────────────────────────────────────────────────── -->
     <div class="main-area" id="main-area">
     <div class="app-columns">
+
+      <!-- Overview (all bots) — shown instead of the columns when selected -->
+      <div id="overview-view" class="overview-view" style="display:none">
+        <div class="ov-inner">
+          <div class="ov-head">
+            <h2>📊 Fleet overview</h2>
+            <p class="ov-sub">What each of your bots has been doing, and how they compare.</p>
+          </div>
+          <div id="ov-cards" class="ov-cards"></div>
+          <div class="ov-chat">
+            <div class="ov-chat-head">
+              <span>Ask about your bots</span>
+              <button class="btn-primary" style="padding:5px 14px;font-size:12px" onclick="ovRecommend()">⭐ Which bot is best?</button>
+            </div>
+            <div id="ov-chat-messages" class="ov-chat-messages"></div>
+            <div class="ov-chat-input">
+              <textarea id="ov-input" rows="1" placeholder="e.g. Why did Hermes fail more tasks this week?"></textarea>
+              <button class="btn-primary" id="ov-send" onclick="ovAsk()">Ask</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Claude Chat -->
       <div class="col" id="col-chat">
@@ -220,8 +248,19 @@
               <button class="pw-toggle" onclick="togglePw('vf-pass',this)">👁</button>
             </div>
           </div>
-          <div><label>Label (optional)</label><input id="vf-label" placeholder="My VPS"/></div>
+          <div style="display:flex;gap:12px">
+            <div style="flex:2"><label>Label</label><input id="vf-label" placeholder="Claude Bot 1"/></div>
+            <div style="flex:1">
+              <label>Agent</label>
+              <select id="vf-agent" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;font-family:inherit">
+                <option value="openclaw">🦞 OpenClaw</option>
+                <option value="hermes">🪽 Hermes</option>
+              </select>
+            </div>
+          </div>
+          <input type="hidden" id="vf-id" value=""/>
           <div class="cred-form-actions">
+            <button class="btn-secondary" id="vf-cancel" style="display:none" onclick="resetVpsForm()">Cancel edit</button>
             <button class="btn-primary" onclick="saveVps()">Save &amp; Reconnect</button>
           </div>
         </div>

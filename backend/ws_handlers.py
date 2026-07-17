@@ -530,7 +530,8 @@ async def pty_ws_handler(ws: WebSocket, session: PTYSession,
 
 
 # ── Chat WebSocket ─────────────────────────────────────────────────────────────
-async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_ref: dict):
+async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_ref: dict,
+                          vps_id: Optional[str] = None):
     await ws.accept()
 
     # Each user must supply their own API key for their chosen provider —
@@ -555,14 +556,19 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         await ws.send_json({"type": "error", "message": str(e)})
         return
 
-    # Load VPS credentials for this user — use first() to survive any accidental duplicates
-    vps_result = await db.execute(
-        select(VpsConnection).where(VpsConnection.user_id == user.id)
-        .order_by(VpsConnection.created_at)
-    )
-    vps_conn = vps_result.scalars().first()
+    # Resolve the active bot (VPS) — by id when given, else the user's first
+    vps_q = select(VpsConnection).where(VpsConnection.user_id == user.id)
+    if vps_id:
+        try:
+            vps_q = vps_q.where(VpsConnection.id == uuid.UUID(vps_id))
+        except ValueError:
+            vps_q = vps_q.order_by(VpsConnection.created_at)
+    else:
+        vps_q = vps_q.order_by(VpsConnection.created_at)
+    vps_conn = (await db.execute(vps_q)).scalars().first()
     if not vps_conn:
         await ws.send_json({"type": "error", "message": "No VPS configured. Add one in Settings."})
+    active_vps_id = vps_conn.id if vps_conn else None   # scopes chat/memory/tasks/audit to this bot
 
     def get_vps_creds():
         if not vps_conn:
@@ -573,9 +579,10 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
 
     vps_host, vps_port, vps_user, vps_pass = get_vps_creds()
 
-    # Load or create ChatSession in DB
+    # Load or create ChatSession in DB — one conversation thread per bot
     sess_result = await db.execute(
-        select(ChatSession).where(ChatSession.user_id == user.id)
+        select(ChatSession).where(ChatSession.user_id == user.id,
+                                  ChatSession.vps_id == active_vps_id)
         .order_by(ChatSession.updated_at.desc()).limit(1)
     )
     db_session    = sess_result.scalar_one_or_none()
@@ -608,7 +615,8 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         Called at connect and whenever facts change."""
         nonlocal memory_block_text
         facts = (await db.execute(
-            select(MemoryFact).where(MemoryFact.user_id == user.id)
+            select(MemoryFact).where(MemoryFact.user_id == user.id,
+                                     MemoryFact.vps_id == active_vps_id)
             .order_by(MemoryFact.category, MemoryFact.key)
         )).scalars().all()
         if not facts:
@@ -626,13 +634,15 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
     async def has_vps_profile() -> bool:
         row = (await db.execute(
             select(MemoryFact).where(MemoryFact.user_id == user.id,
+                                     MemoryFact.vps_id == active_vps_id,
                                      MemoryFact.category == "vps_profile").limit(1)
         )).scalar_one_or_none()
         return row is not None
 
     async def clear_vps_profile():
         await db.execute(delete(MemoryFact).where(
-            MemoryFact.user_id == user.id, MemoryFact.category == "vps_profile"))
+            MemoryFact.user_id == user.id, MemoryFact.vps_id == active_vps_id,
+            MemoryFact.category == "vps_profile"))
         await db.commit()
         await refresh_memory_block()
 
@@ -659,7 +669,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             db_session.history    = list(claude_history)
             db_session.updated_at = datetime.utcnow()
         else:
-            db_session = ChatSession(user_id=user.id, history=list(claude_history))
+            db_session = ChatSession(user_id=user.id, vps_id=active_vps_id, history=list(claude_history))
             db.add(db_session)
         await db.commit()
 
@@ -669,7 +679,8 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             return
         for f in facts:
             existing = (await db.execute(
-                select(MemoryFact).where(MemoryFact.user_id == user.id, MemoryFact.key == f["key"])
+                select(MemoryFact).where(MemoryFact.user_id == user.id,
+                                         MemoryFact.vps_id == active_vps_id, MemoryFact.key == f["key"])
             )).scalar_one_or_none()
             vec = await embed(f"{f['key']}: {f['value']}")
             if existing:
@@ -677,7 +688,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 existing.category = f["category"]
                 existing.embedding = vec
             else:
-                db.add(MemoryFact(user_id=user.id, key=f["key"], value=f["value"],
+                db.add(MemoryFact(user_id=user.id, vps_id=active_vps_id, key=f["key"], value=f["value"],
                                   category=f["category"], embedding=vec))
         await db.commit()
         await refresh_memory_block()   # keep the system-prompt facts current
@@ -693,13 +704,13 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 continue
             if t["action"] == "start":
                 vec = await embed(title)
-                db.add(Task(user_id=user.id, title=title, status="in_progress", embedding=vec))
+                db.add(Task(user_id=user.id, vps_id=active_vps_id, title=title, status="in_progress", embedding=vec))
             else:
                 status = "done" if t["action"] == "done" else "failed"
                 # Find the most recent in-progress task with this title
                 existing = (await db.execute(
-                    select(Task).where(Task.user_id == user.id, Task.title == title,
-                                       Task.status == "in_progress")
+                    select(Task).where(Task.user_id == user.id, Task.vps_id == active_vps_id,
+                                       Task.title == title, Task.status == "in_progress")
                     .order_by(Task.created_at.desc()).limit(1)
                 )).scalar_one_or_none()
                 vec = await embed(f"{title}: {t['outcome']}")
@@ -709,7 +720,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                     existing.embedding    = vec
                     existing.completed_at = datetime.utcnow()
                 else:
-                    db.add(Task(user_id=user.id, title=title, status=status,
+                    db.add(Task(user_id=user.id, vps_id=active_vps_id, title=title, status=status,
                                 outcome=t["outcome"], embedding=vec,
                                 completed_at=datetime.utcnow()))
         await db.commit()
@@ -730,7 +741,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             }
             detail_enc = encrypt_secret(vault_key, json.dumps(detail))
             db.add(AuditLog(
-                user_id=user.id, action_type=action_type,
+                user_id=user.id, vps_id=active_vps_id, action_type=action_type,
                 vps_host=(vps_host or ""), headline=_redact(headline)[:200],
                 status=status, detail_enc=detail_enc,
             ))

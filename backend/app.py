@@ -73,6 +73,20 @@ async def startup():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_provider VARCHAR DEFAULT 'anthropic'"))
         await conn.execute(text(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_model VARCHAR"))
+        # Multi-bot: agent type per VPS + per-bot scoping of chat/memory/tasks/audit
+        await conn.execute(text(
+            "ALTER TABLE vps_connections ADD COLUMN IF NOT EXISTS agent_type VARCHAR DEFAULT 'openclaw'"))
+        for t in ("chat_sessions", "tasks", "memory_facts", "audit_log"):
+            await conn.execute(text(
+                f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS vps_id UUID "
+                f"REFERENCES vps_connections(id) ON DELETE SET NULL"))
+            await conn.execute(text(
+                f"CREATE INDEX IF NOT EXISTS ix_{t}_vps_id ON {t} (vps_id)"))
+            # Backfill legacy rows onto the user's first (default) VPS
+            await conn.execute(text(
+                f"UPDATE {t} SET vps_id = ("
+                f"  SELECT v.id FROM vps_connections v WHERE v.user_id = {t}.user_id"
+                f"  ORDER BY v.created_at LIMIT 1) WHERE vps_id IS NULL"))
 
 
 # ── Static files + SPA ───────────────────────────────────────────────────────
@@ -289,47 +303,65 @@ async def delete_account(body: DeleteAccountIn, response: Response,
     return {"ok": True}
 
 
-# ── VPS Connections ───────────────────────────────────────────────────────────
+# ── VPS Connections (bots) ────────────────────────────────────────────────────
 class VpsIn(BaseModel):
-    label:    str = "My VPS"
-    host:     str
-    port:     int = 22
-    username: str
-    password: str
+    label:      str = "My VPS"
+    host:       str
+    port:       int = 22
+    username:   str
+    password:   str
+    agent_type: str = DEFAULT_AGENT
+    vps_id:     str = ""     # set → update that bot; empty → add a new one
 
 @app.get("/api/vps")
 async def list_vps(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(VpsConnection).where(VpsConnection.user_id == user.id))
+    result = await db.execute(select(VpsConnection).where(VpsConnection.user_id == user.id)
+                              .order_by(VpsConnection.created_at))
     conns  = result.scalars().all()
     return [{"id": str(c.id), "label": c.label, "host": c.host, "port": c.port,
-             "username": c.username, "is_default": c.is_default} for c in conns]
+             "username": c.username, "is_default": c.is_default,
+             "agent_type": getattr(c, "agent_type", None) or DEFAULT_AGENT,
+             "agent_label": agent_cfg(getattr(c, "agent_type", None))["label"],
+             "agent_icon":  agent_cfg(getattr(c, "agent_type", None))["icon"]} for c in conns]
 
 @app.post("/api/vps")
 async def add_vps(body: VpsIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     vault_key    = get_user_vault_key(user)
     password_enc = encrypt_secret(vault_key, body.password.strip())   # strip accidental whitespace
-    # Upsert: update existing default if one exists, otherwise create new
-    existing = (await db.execute(
-        select(VpsConnection).where(VpsConnection.user_id == user.id)
-        .order_by(VpsConnection.created_at).limit(1)
-    )).scalar_one_or_none()
-    if existing:
-        existing.label        = body.label
-        existing.host         = body.host.strip()
-        existing.port         = body.port
-        existing.username     = body.username.strip()
-        existing.password_enc = password_enc
-        existing.is_default   = True
-        conn = existing
+    agent_type   = body.agent_type if body.agent_type in AGENTS else DEFAULT_AGENT
+    conn = None
+    if body.vps_id:   # explicit edit of an existing bot
+        try:
+            conn = (await db.execute(
+                select(VpsConnection).where(VpsConnection.user_id == user.id,
+                                            VpsConnection.id == uuid.UUID(body.vps_id))
+            )).scalar_one_or_none()
+        except ValueError:
+            conn = None
+        if not conn:
+            raise HTTPException(404, "Bot not found")
+    if conn:
+        conn.label        = body.label
+        conn.host         = body.host.strip()
+        conn.port         = body.port
+        conn.username     = body.username.strip()
+        conn.password_enc = password_enc
+        conn.agent_type   = agent_type
     else:
+        count = len((await db.execute(
+            select(VpsConnection.id).where(VpsConnection.user_id == user.id))).scalars().all())
+        if count >= MAX_BOTS:
+            raise HTTPException(400, f"Bot limit reached ({MAX_BOTS}). Remove one to add another.")
         conn = VpsConnection(
             user_id=user.id, label=body.label, host=body.host.strip(),
             port=body.port, username=body.username.strip(), password_enc=password_enc,
+            agent_type=agent_type, is_default=(count == 0),
         )
         db.add(conn)
     await db.commit()
     await db.refresh(conn)
-    return {"id": str(conn.id), "label": conn.label, "host": conn.host}
+    return {"id": str(conn.id), "label": conn.label, "host": conn.host,
+            "agent_type": conn.agent_type}
 
 @app.delete("/api/vps/{conn_id}")
 async def delete_vps(conn_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -425,8 +457,100 @@ async def delete_credential(cred_id: uuid.UUID, user: User = Depends(get_current
     return {"ok": True}
 
 
+# ── Overview: cross-bot aggregates + Q&A ──────────────────────────────────────
+@app.get("/api/overview")
+async def overview(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Per-bot health/productivity aggregates for the Overview dashboard."""
+    bots = (await db.execute(
+        select(VpsConnection).where(VpsConnection.user_id == user.id)
+        .order_by(VpsConnection.created_at))).scalars().all()
+    week  = _dt.utcnow() - _td(days=7)
+    month = _dt.utcnow() - _td(days=30)
+    tasks = (await db.execute(
+        select(Task).where(Task.user_id == user.id, Task.created_at >= month))).scalars().all()
+    audits = (await db.execute(
+        select(AuditLog.vps_id, AuditLog.status, AuditLog.created_at)
+        .where(AuditLog.user_id == user.id, AuditLog.created_at >= week))).all()
+    out = []
+    for b in bots:
+        bt  = [t for t in tasks if t.vps_id == b.id]
+        bt7 = [t for t in bt if t.created_at >= week]
+        ba  = [a for a in audits if a.vps_id == b.id]
+        last = max([t.created_at for t in bt] + [a.created_at for a in ba], default=None)
+        out.append({
+            "id": str(b.id), "label": b.label,
+            "agent_type": getattr(b, "agent_type", None) or DEFAULT_AGENT,
+            "agent_label": agent_cfg(getattr(b, "agent_type", None))["label"],
+            "agent_icon":  agent_cfg(getattr(b, "agent_type", None))["icon"],
+            "host": b.host,
+            "tasks_7d":  {"done": sum(1 for t in bt7 if t.status == "done"),
+                          "failed": sum(1 for t in bt7 if t.status == "failed"),
+                          "in_progress": sum(1 for t in bt7 if t.status == "in_progress")},
+            "tasks_30d": {"done": sum(1 for t in bt if t.status == "done"),
+                          "failed": sum(1 for t in bt if t.status == "failed")},
+            "cmds_7d":   {"ok": sum(1 for a in ba if a.status == "ok"),
+                          "failed": sum(1 for a in ba if a.status == "failed"),
+                          "cancelled": sum(1 for a in ba if a.status == "cancelled")},
+            "last_activity": last.isoformat() if last else None,
+        })
+    return {"bots": out, "max_bots": MAX_BOTS}
+
+
+class OverviewAskIn(BaseModel):
+    question: str
+    history:  list = []    # [{role, content}] — kept client-side, capped here
+
+@app.post("/api/overview/ask")
+async def overview_ask(body: OverviewAskIn, user: User = Depends(get_current_user),
+                       db: AsyncSession = Depends(get_db)):
+    """Cross-bot Q&A: answer questions about all bots from their stats + recent
+    work, using the user's own LLM. Analysis only — no actions, no terminals."""
+    from backend.llm import LLMClient
+    if not is_entitled(user):
+        raise HTTPException(402, "Subscription required")
+    provider = normalize_provider(getattr(user, "llm_provider", None))
+    cfg      = LLM_PROVIDERS[provider]
+    key_cred = (await db.execute(
+        select(Credential).where(Credential.user_id == user.id,
+                                 Credential.name == cfg["cred"]))).scalar_one_or_none()
+    if not key_cred:
+        raise HTTPException(400, f"No {cfg['label']} API key saved — add it in Settings.")
+    api_key = decrypt_secret(get_user_vault_key(user), key_cred.password_enc)
+
+    stats = await overview(user, db)     # reuse the aggregates
+    month = _dt.utcnow() - _td(days=30)
+    recent = (await db.execute(
+        select(Task).where(Task.user_id == user.id, Task.created_at >= month)
+        .order_by(Task.created_at.desc()).limit(60))).scalars().all()
+    by_bot: dict[str, list] = {}
+    labels = {b["id"]: f"{b['agent_icon']} {b['label']} ({b['agent_label']})" for b in stats["bots"]}
+    for t in recent:
+        key = labels.get(str(t.vps_id), "Unassigned")
+        if len(by_bot.setdefault(key, [])) < 12:
+            by_bot[key].append(f"[{t.status}] {t.title}" + (f" — {t.outcome[:120]}" if t.outcome else ""))
+    context = "## Bot stats (7/30 days)\n" + _json.dumps(stats["bots"], indent=1, default=str) \
+            + "\n\n## Recent tasks per bot\n" \
+            + "\n".join(f"### {k}\n" + "\n".join(v) for k, v in by_bot.items())
+    system = (
+        "You are Gubernator's fleet analyst. The user runs one or more AI-agent bots "
+        "(each on its own server). Below is their real performance data. Answer the user's "
+        "question plainly and concretely for a non-technical reader: compare bots on task "
+        "success, failures, and activity; call out problems; recommend which bot fits which "
+        "kind of work. Be honest when data is too thin to judge — never invent numbers.\n\n"
+        + context)
+    llm = LLMClient(provider, api_key, getattr(user, "llm_model", None))
+    msgs = [m for m in body.history[-8:] if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
+    msgs.append({"role": "user", "content": body.question[:2000]})
+    try:
+        answer = await llm.complete(system, msgs, max_tokens=1500)
+    except Exception as e:
+        raise HTTPException(502, f"AI request failed: {e}")
+    return {"answer": answer}
+
+
 # ── LLM provider settings ─────────────────────────────────────────────────────
 from backend.llm import PROVIDERS as LLM_PROVIDERS, normalize_provider
+from backend.agents import AGENTS, DEFAULT_AGENT, MAX_BOTS, agent_cfg
 
 class LlmSettingsIn(BaseModel):
     provider: str
@@ -477,12 +601,13 @@ async def set_llm_settings(body: LlmSettingsIn, user: User = Depends(get_current
 # ── Tasks (Activity panel) ────────────────────────────────────────────────────
 # ── Audit log ─────────────────────────────────────────────────────────────────
 @app.get("/api/audit")
-async def list_audit(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_audit(vps_id: str = "", user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     import json as _j
-    rows = (await db.execute(
-        select(AuditLog).where(AuditLog.user_id == user.id)
-        .order_by(AuditLog.created_at.desc()).limit(200)
-    )).scalars().all()
+    q = select(AuditLog).where(AuditLog.user_id == user.id)
+    if vps_id:
+        try: q = q.where(AuditLog.vps_id == uuid.UUID(vps_id))
+        except ValueError: pass
+    rows = (await db.execute(q.order_by(AuditLog.created_at.desc()).limit(200))).scalars().all()
     vault_key = get_user_vault_key(user)
     out = []
     for r in rows:
@@ -591,10 +716,12 @@ async def paypal_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @app.get("/api/tasks")
-async def list_tasks(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    rows = (await db.execute(
-        select(Task).where(Task.user_id == user.id).order_by(Task.created_at.desc()).limit(100)
-    )).scalars().all()
+async def list_tasks(vps_id: str = "", user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    q = select(Task).where(Task.user_id == user.id)
+    if vps_id:
+        try: q = q.where(Task.vps_id == uuid.UUID(vps_id))
+        except ValueError: pass
+    rows = (await db.execute(q.order_by(Task.created_at.desc()).limit(100))).scalars().all()
     return [{"id": str(t.id), "title": t.title, "status": t.status, "outcome": t.outcome,
              "created_at": t.created_at.isoformat(),
              "completed_at": t.completed_at.isoformat() if t.completed_at else None}
@@ -615,26 +742,33 @@ class MemoryIn(BaseModel):
     key:      str
     value:    str
     category: str = "general"
+    vps_id:   str = ""
 
 @app.get("/api/memory")
-async def list_memory(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    rows = (await db.execute(
-        select(MemoryFact).where(MemoryFact.user_id == user.id)
-        .order_by(MemoryFact.category, MemoryFact.key)
-    )).scalars().all()
+async def list_memory(vps_id: str = "", user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    q = select(MemoryFact).where(MemoryFact.user_id == user.id)
+    if vps_id:
+        try: q = q.where(MemoryFact.vps_id == uuid.UUID(vps_id))
+        except ValueError: pass
+    rows = (await db.execute(q.order_by(MemoryFact.category, MemoryFact.key))).scalars().all()
     return [{"id": str(m.id), "key": m.key, "value": m.value, "category": m.category,
              "updated_at": m.updated_at.isoformat()} for m in rows]
 
 @app.post("/api/memory")
 async def save_memory(body: MemoryIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     vec = await embed(f"{body.key}: {body.value}")
+    bvps = None
+    if body.vps_id:
+        try: bvps = uuid.UUID(body.vps_id)
+        except ValueError: bvps = None
     existing = (await db.execute(
-        select(MemoryFact).where(MemoryFact.user_id == user.id, MemoryFact.key == body.key)
+        select(MemoryFact).where(MemoryFact.user_id == user.id,
+                                 MemoryFact.vps_id == bvps, MemoryFact.key == body.key)
     )).scalar_one_or_none()
     if existing:
         existing.value = body.value; existing.category = body.category; existing.embedding = vec
     else:
-        db.add(MemoryFact(user_id=user.id, key=body.key, value=body.value,
+        db.add(MemoryFact(user_id=user.id, vps_id=bvps, key=body.key, value=body.value,
                           category=body.category, embedding=vec))
     await db.commit()
     return {"ok": True}
@@ -670,13 +804,11 @@ async def semantic_search(q: str, user: User = Depends(get_current_user), db: As
 
 
 # ── Skills marketplace (ClawHub via openclaw CLI) ─────────────────────────────
-async def _vps_exec(user: User, db: AsyncSession, cmd: str, timeout: int = 60) -> str:
+async def _vps_exec(user: User, db: AsyncSession, cmd: str, timeout: int = 60,
+                    vps_id: str | None = None) -> str:
     """Run a command on the user's VPS over a short-lived SSH exec connection.
     Independent of the chat WebSocket, so REST endpoints can use it directly."""
-    vps = (await db.execute(
-        select(VpsConnection).where(VpsConnection.user_id == user.id)
-        .order_by(VpsConnection.created_at)
-    )).scalars().first()
+    vps = await _resolve_vps(user, db, vps_id)
     if not vps:
         raise HTTPException(400, "No VPS configured")
     vault_key = get_user_vault_key(user)
@@ -713,13 +845,11 @@ def _secret_file_body(username: str, password: str, notes: str) -> str:
         return "\n".join(lines) + "\n"
     return password + "\n"
 
-async def _vps_sftp_put(user: User, db: AsyncSession, path: str, content: str) -> Optional[str]:
+async def _vps_sftp_put(user: User, db: AsyncSession, path: str, content: str,
+                        vps_id: str | None = None) -> Optional[str]:
     """Write `content` to `path` on the user's VPS (0600). Returns error string or None.
     Short-lived SSH, independent of the chat WebSocket."""
-    vps = (await db.execute(
-        select(VpsConnection).where(VpsConnection.user_id == user.id)
-        .order_by(VpsConnection.created_at)
-    )).scalars().first()
+    vps = await _resolve_vps(user, db, vps_id)
     if not vps:
         return "No VPS configured"
     vault_key = get_user_vault_key(user)
@@ -758,10 +888,11 @@ async def _vps_rm_secret(user: User, db: AsyncSession, path: str) -> None:
 
 
 @app.post("/api/agent/restart-view")
-async def restart_agent_view(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def restart_agent_view(vps_id: str = "", user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Kill the agent's terminal view (tmux session). The agent itself keeps
     running — the panel auto-reconnects and opens a fresh view."""
-    out = await _vps_exec(user, db, "tmux kill-session -t ocmgr-tui 2>&1 || true", timeout=15)
+    out = await _vps_exec(user, db, "tmux kill-session -t ocmgr-tui 2>&1 || true", timeout=15,
+                          vps_id=vps_id or None)
     return {"ok": True, "output": out.strip()}
 
 
@@ -889,18 +1020,40 @@ async def ws_get_user(token: str, db: AsyncSession) -> User:
     return result.scalar_one_or_none()
 
 
-# Per-user terminal sessions — keyed by user_id string
-_user_sessions: dict[str, dict] = {}   # {user_id: {"tui": PTYSession, "shell": PTYSession}}
+# Per-user terminal sessions — keyed by user_id string. Only ONE bot's
+# connections are live at a time (reconnect-on-switch): connecting with a
+# different vps_id closes the previous bot's sessions first.
+_user_sessions: dict[str, dict] = {}   # {user_id: {"vps_id": str, "tui": PTYSession, "shell": PTYSession}}
 
-def get_user_sessions(user_id: str) -> dict:
-    if user_id not in _user_sessions:
-        _user_sessions[user_id] = {}
-    return _user_sessions[user_id]
+def get_user_sessions(user_id: str, vps_id: str | None = None) -> dict:
+    sessions = _user_sessions.setdefault(user_id, {})
+    if vps_id and sessions.get("vps_id") not in (None, vps_id):
+        for k in ("tui", "shell"):
+            s = sessions.pop(k, None)
+            if s:
+                try: s.close()
+                except Exception: pass
+    if vps_id:
+        sessions["vps_id"] = vps_id
+    return sessions
+
+
+async def _resolve_vps(user: User, db: AsyncSession, vps_id: str | None):
+    """The user's VPS by id (must belong to them), or their first one."""
+    q = select(VpsConnection).where(VpsConnection.user_id == user.id)
+    if vps_id:
+        try:
+            q = q.where(VpsConnection.id == uuid.UUID(vps_id))
+        except ValueError:
+            return None
+    else:
+        q = q.order_by(VpsConnection.created_at)
+    return (await db.execute(q)).scalars().first()
 
 
 # ── WebSocket routes ──────────────────────────────────────────────────────────
 @app.websocket("/ws/tui")
-async def ws_tui(ws: WebSocket, token: str = Query(...)):
+async def ws_tui(ws: WebSocket, token: str = Query(...), vps_id: str = Query(None)):
     async with SessionLocal() as db:
         user = await ws_get_user(token, db)
         if not user:
@@ -908,10 +1061,7 @@ async def ws_tui(ws: WebSocket, token: str = Query(...)):
             await ws.send_json({"type": "error", "subtype": "auth_expired"})
             await ws.close()
             return
-        vps = (await db.execute(
-            select(VpsConnection).where(VpsConnection.user_id == user.id)
-            .order_by(VpsConnection.created_at)
-        )).scalars().first()
+        vps = await _resolve_vps(user, db, vps_id)
         if not vps:
             await ws.accept()
             await ws.send_json({"type": "error", "subtype": "no_vps", "message": "No VPS configured"})
@@ -919,16 +1069,17 @@ async def ws_tui(ws: WebSocket, token: str = Query(...)):
             return
         vault_key = get_user_vault_key(user)
         password  = decrypt_secret(vault_key, vps.password_enc) if vps.password_enc else ""
+        agent = agent_cfg(vps.agent_type)
         TMUX = "ocmgr-tui"
-        cmd  = (f"tmux new-session -d -x 220 -y 50 -s {TMUX} 'openclaw tui' 2>/dev/null; "
+        cmd  = (f"tmux new-session -d -x 220 -y 50 -s {TMUX} '{agent['tui_cmd']}' 2>/dev/null; "
                 f"tmux set-option -t {TMUX} mouse on 2>/dev/null; "
                 f"tmux attach-session -t {TMUX}")
-        sessions = get_user_sessions(str(user.id))
+        sessions = get_user_sessions(str(user.id), str(vps.id))
         await pty_ws_handler(ws, PTYSession(), vps.host, vps.port, vps.username, password, cmd, "tui", sessions)
 
 
 @app.websocket("/ws/shell")
-async def ws_shell(ws: WebSocket, token: str = Query(...)):
+async def ws_shell(ws: WebSocket, token: str = Query(...), vps_id: str = Query(None)):
     async with SessionLocal() as db:
         user = await ws_get_user(token, db)
         if not user:
@@ -936,10 +1087,7 @@ async def ws_shell(ws: WebSocket, token: str = Query(...)):
             await ws.send_json({"type": "error", "subtype": "auth_expired"})
             await ws.close()
             return
-        vps = (await db.execute(
-            select(VpsConnection).where(VpsConnection.user_id == user.id)
-            .order_by(VpsConnection.created_at)
-        )).scalars().first()
+        vps = await _resolve_vps(user, db, vps_id)
         if not vps:
             await ws.accept()
             await ws.send_json({"type": "error", "subtype": "no_vps", "message": "No VPS configured"})
@@ -947,12 +1095,12 @@ async def ws_shell(ws: WebSocket, token: str = Query(...)):
             return
         vault_key = get_user_vault_key(user)
         password  = decrypt_secret(vault_key, vps.password_enc) if vps.password_enc else ""
-        sessions  = get_user_sessions(str(user.id))
+        sessions  = get_user_sessions(str(user.id), str(vps.id))
         await pty_ws_handler(ws, PTYSession(), vps.host, vps.port, vps.username, password, None, "shell", sessions)
 
 
 @app.websocket("/ws/chat")
-async def ws_chat(ws: WebSocket, token: str = Query(...)):
+async def ws_chat(ws: WebSocket, token: str = Query(...), vps_id: str = Query(None)):
     async with SessionLocal() as db:
         user = await ws_get_user(token, db)
         if not user:
@@ -965,5 +1113,5 @@ async def ws_chat(ws: WebSocket, token: str = Query(...)):
             await ws.send_json({"type": "error", "subtype": "subscription_required"})
             await ws.close()
             return
-        sessions = get_user_sessions(str(user.id))
-        await chat_ws_handler(ws, user, db, sessions)
+        sessions = get_user_sessions(str(user.id), vps_id)
+        await chat_ws_handler(ws, user, db, sessions, vps_id)

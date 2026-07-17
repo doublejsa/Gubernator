@@ -42,6 +42,7 @@ class VpsConnection(Base):
     id:          Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id:     Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     label:       Mapped[str]       = mapped_column(String, default="My VPS")
+    agent_type:  Mapped[str]       = mapped_column(String, default="openclaw")  # openclaw | hermes
     host:        Mapped[str]       = mapped_column(String, nullable=False)
     port:        Mapped[int]       = mapped_column(Integer, default=22)
     username:    Mapped[str]       = mapped_column(String, nullable=False)
@@ -73,6 +74,7 @@ class ChatSession(Base):
 
     id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id:    Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    vps_id:     Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("vps_connections.id", ondelete="SET NULL"), nullable=True, index=True)
     history:    Mapped[list]      = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime]  = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime]  = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -86,6 +88,7 @@ class Task(Base):
 
     id:           Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id:      Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    vps_id:     Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("vps_connections.id", ondelete="SET NULL"), nullable=True, index=True)
     title:        Mapped[str]       = mapped_column(String, nullable=False)
     status:       Mapped[str]       = mapped_column(String, default="in_progress")   # in_progress | done | failed
     outcome:      Mapped[str]       = mapped_column(Text, default="")
@@ -102,6 +105,7 @@ class MemoryFact(Base):
 
     id:         Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id:    Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    vps_id:     Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("vps_connections.id", ondelete="SET NULL"), nullable=True, index=True)
     key:        Mapped[str]       = mapped_column(String, nullable=False)
     value:      Mapped[str]       = mapped_column(Text, nullable=False)
     category:   Mapped[str]       = mapped_column(String, default="general")
@@ -120,6 +124,7 @@ class AuditLog(Base):
 
     id:          Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id:     Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    vps_id:     Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("vps_connections.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at:  Mapped[datetime]  = mapped_column(DateTime, default=datetime.utcnow, index=True)
     action_type: Mapped[str]       = mapped_column(String, default="")   # vps_cmd | vps_write | tui_input
     vps_host:    Mapped[str]       = mapped_column(String, default="")

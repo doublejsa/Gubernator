@@ -144,6 +144,57 @@ html, body {
 .nav-build-tool { color: var(--warn-text); }
 .nav-build-tool:hover { background: var(--warn-bg); color: var(--warn-text); }
 
+/* Bots section (multi-bot switcher) */
+.sidebar-bots {
+  padding: 8px 6px 4px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.sidebar.collapsed .sidebar-bots .sidebar-heading { display: none; }
+.bot-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+/* ── Overview (all bots) ───────────────────────────────────────────────────── */
+.overview-view {
+  flex: 1; min-width: 0; overflow-y: auto;
+  background: var(--bg);
+  display: flex; flex-direction: column; align-items: center;
+}
+.ov-inner { width: 100%; max-width: 860px; padding: 28px 22px 40px; }
+.ov-head h2 { font-size: 22px; margin-bottom: 4px; color: var(--heading); }
+.ov-sub  { font-size: 14px; color: var(--dim); margin-bottom: 22px; }
+.ov-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; margin-bottom: 26px; }
+.ov-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ov-card:hover  { border-color: var(--accent); box-shadow: 0 4px 14px var(--shadow); }
+.ov-card.active { border-color: var(--accent); }
+.ov-card-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+.ov-card-icon { font-size: 24px; }
+.ov-card-name { font-size: 15px; font-weight: 700; }
+.ov-card-sub  { font-size: 11px; color: var(--dim); }
+.ov-card-health { margin-left: auto; font-size: 14px; }
+.ov-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.ov-stat  { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.ov-num   { display: block; font-size: 18px; font-weight: 700; color: var(--heading); }
+.ov-lbl   { font-size: 10px; color: var(--dim); }
+.ov-card-foot { font-size: 11px; color: var(--dim); }
+.ov-chat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.ov-chat-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  font-size: 14px; font-weight: 600;
+}
+.ov-chat-messages {
+  min-height: 60px; max-height: 380px; overflow-y: auto;
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.ov-chat-input { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); }
+.ov-chat-input textarea {
+  flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 14px; padding: 9px 12px; outline: none; resize: none;
+  font-family: inherit; line-height: 1.5;
+}
+.ov-chat-input textarea:focus { border-color: var(--accent); }
+
 .sidebar-ideas {
   flex: 1; overflow-y: auto; padding: 8px 6px;
   border-top: 1px solid var(--border);
@@ -952,7 +1003,11 @@ body.dragging-v, body.dragging-h { user-select: none; -webkit-user-select: none;
     height: 100% !important; min-height: 0 !important; flex: 1 1 auto !important; opacity: 1 !important;
   }
 
-  .app[data-mview="chat"]     #col-chat        { display: flex !important; }
+  .app.overview-open #col-chat, .app.overview-open #whats-happening,
+  .app.overview-open #right-panel { display: none !important; }
+  .app.overview-open #overview-view { display: flex !important; height: 100%; }
+
+  .app[data-mview="chat"]:not(.overview-open)     #col-chat        { display: flex !important; }
   .app[data-mview="activity"] #whats-happening { display: flex !important; }
   .app[data-mview="agent"]    #right-panel     { display: flex !important; }
   .app[data-mview="agent"]    #col-tui         { display: flex !important; }
