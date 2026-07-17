@@ -30,6 +30,7 @@ from backend.terminal import PTYSession
 from backend.ws_handlers import pty_ws_handler, chat_ws_handler
 from backend.email_sender import send_verification, send_password_reset, read_token
 from backend import paypal
+from backend.agents import AGENTS, DEFAULT_AGENT, MAX_BOTS, agent_cfg
 from backend.config import (
     PAYPAL_CLIENT_ID, PAYPAL_PLAN_ID, PAYPAL_ENV, PLAN_PRICE_USD, TRIAL_DAYS,
 )
@@ -550,7 +551,6 @@ async def overview_ask(body: OverviewAskIn, user: User = Depends(get_current_use
 
 # ── LLM provider settings ─────────────────────────────────────────────────────
 from backend.llm import PROVIDERS as LLM_PROVIDERS, normalize_provider
-from backend.agents import AGENTS, DEFAULT_AGENT, MAX_BOTS, agent_cfg
 
 class LlmSettingsIn(BaseModel):
     provider: str
