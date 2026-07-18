@@ -315,6 +315,25 @@ function ovRecommend() {
   ovAsk('Compare my bots and recommend which is best for which kind of work, based on my data. Call out anything that needs attention.');
 }
 
+// ── Session model boost ───────────────────────────────────────────────────────
+function boostModel() {
+  if (!chatWs || chatWs.readyState !== WebSocket.OPEN) { alert('Not connected — try again in a moment.'); return; }
+  chatWs.send(JSON.stringify({ type: 'set_session_model', model: 'claude-fable-5' }));
+}
+
+async function maybeShowModelTip() {
+  // Existing accounts stayed pinned to Budget when the default moved to Best —
+  // recommend the upgrade once, ever.
+  if (localStorage.getItem('gov_model_tip_shown')) return;
+  try {
+    const d = await (await fetch('/api/llm')).json();
+    if (d.provider === 'anthropic' && (d.effective_model || '').includes('haiku')) {
+      showToast('💡 New: a smarter AI assistant is now recommended — see Settings → AI Assistant (“Best”)', 'success');
+      localStorage.setItem('gov_model_tip_shown', '1');
+    }
+  } catch (e) {}
+}
+
 // ── Agent view reset ──────────────────────────────────────────────────────────
 async function restartAgentView() {
   if (!confirm('Reset the agent view? The agent keeps running — this just refreshes the display.')) return;
@@ -912,7 +931,8 @@ function addLoopBanner(count) {
     <div class="loop-title">🔁 Gubernator noticed this is looping${count ? ` (tried ~${count}×)` : ''}</div>
     <div class="loop-body">The same approach keeps failing. For a repeatable job like this, the fix is
       to build a <strong>reliable script</strong> that works first-time, every time, instead of retrying by hand.</div>
-    <button class="retry-btn" onclick="buildTool()" style="margin-top:8px">🔧 Build the tool now</button>`;
+    <button class="retry-btn" onclick="buildTool()" style="margin-top:8px">🔧 Build the tool now</button>
+    <button class="retry-btn" onclick="boostModel()" style="margin-top:8px;margin-left:8px" title="Switch this session to Claude's most capable model (~2× cost)">🚀 Boost to Maximum</button>`;
   document.getElementById('chat-messages').appendChild(el);
   scrollChat();
 }
@@ -1677,11 +1697,29 @@ async function openSettingsModal() {
 
 function llmProviderChanged() {
   if (!llmSettings) return;
-  const p = llmSettings.providers.find(x => x.id === document.getElementById('sf-provider').value);
+  const pid = document.getElementById('sf-provider').value;
+  const p = llmSettings.providers.find(x => x.id === pid);
   if (!p) return;
   document.getElementById('sf-model').placeholder  = p.default_model;
   document.getElementById('sf-apikey').placeholder = p.key_hint;
   document.getElementById('sf-key-url').href       = p.key_url;
+  // Claude gets a plain-English quality ladder; other providers a free-text model
+  const isClaude = pid === 'anthropic';
+  document.getElementById('sf-ladder-wrap').style.display = isClaude ? '' : 'none';
+  document.getElementById('sf-model-wrap').style.display  = isClaude ? 'none' : '';
+  if (isClaude) {
+    const current = (llmSettings.provider === 'anthropic' && llmSettings.effective_model)
+      ? llmSettings.effective_model : p.default_model;
+    document.getElementById('sf-ladder').innerHTML = (llmSettings.claude_models || []).map(m => `
+      <label style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer">
+        <input type="radio" name="sf-tier" value="${m.id}" ${m.id === current ? 'checked' : ''} style="margin-top:3px"/>
+        <span style="flex:1">
+          <span style="font-weight:600">${esc(m.label)}</span>
+          <span style="color:var(--dim);font-size:12px;margin-left:6px">${esc(m.cost_hint)}</span><br/>
+          <span style="color:var(--dim);font-size:12px">${esc(m.desc)}</span>
+        </span>
+      </label>`).join('');
+  }
   const status = document.getElementById('sf-apikey-status');
   status.textContent = p.has_key ? `✓ ${p.label} API key saved` : `✗ No ${p.label} API key saved yet`;
   status.style.color = p.has_key ? 'var(--green)' : 'var(--orange)';
@@ -1689,7 +1727,10 @@ function llmProviderChanged() {
 
 async function saveLlmSettings() {
   const provider = document.getElementById('sf-provider').value;
-  const model    = document.getElementById('sf-model').value.trim();
+  const tier     = document.querySelector('input[name="sf-tier"]:checked');
+  const model    = provider === 'anthropic'
+    ? (tier ? tier.value : '')
+    : document.getElementById('sf-model').value.trim();
   const key      = document.getElementById('sf-apikey').value.trim();
   const p        = llmSettings && llmSettings.providers.find(x => x.id === provider);
   if (key === '' && p && !p.has_key) { alert('Enter the API key for this provider'); return; }
@@ -1921,6 +1962,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateAgentSubtitle();
   loadIdeas();
   await loadBots();   // must resolve the active bot before sockets connect
+  maybeShowModelTip();
 
   const tui   = initTerminal('tui-terminal',   '/ws/tui',   'tui');
   const shell = initTerminal('shell-terminal', '/ws/shell', 'shell');

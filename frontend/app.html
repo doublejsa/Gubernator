@@ -403,7 +403,11 @@
               <select id="sf-provider" onchange="llmProviderChanged()"
                       style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;font-family:inherit"></select>
             </div>
-            <div>
+            <div id="sf-ladder-wrap" style="display:none">
+              <label>Quality level</label>
+              <div id="sf-ladder"></div>
+            </div>
+            <div id="sf-model-wrap">
               <label>Model <span style="color:var(--dim)">(leave blank for the recommended default)</span></label>
               <input id="sf-model" type="text" placeholder=""/>
             </div>

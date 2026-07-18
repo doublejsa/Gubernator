@@ -74,6 +74,13 @@ async def startup():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_provider VARCHAR DEFAULT 'anthropic'"))
         await conn.execute(text(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_model VARCHAR"))
+        # Default supervisor model moved Haiku → Opus on 2026-07-18. Pin accounts
+        # created before then to what they were effectively using, so the new
+        # default never silently changes an existing user's API spend.
+        await conn.execute(text(
+            "UPDATE users SET llm_model = 'claude-haiku-4-5-20251001' "
+            "WHERE llm_model IS NULL AND llm_provider = 'anthropic' "
+            "AND created_at < '2026-07-18'"))
         # Multi-bot: agent type per VPS + per-bot scoping of chat/memory/tasks/audit
         await conn.execute(text(
             "ALTER TABLE vps_connections ADD COLUMN IF NOT EXISTS agent_type VARCHAR DEFAULT 'openclaw'"))
@@ -562,9 +569,15 @@ async def get_llm_settings(user: User = Depends(get_current_user), db: AsyncSess
     creds = (await db.execute(
         select(Credential.name).where(Credential.user_id == user.id))).scalars().all()
     have = set(creds)
+    from backend.llm import MODEL_GUIDE
+    provider = normalize_provider(getattr(user, "llm_provider", None))
+    model    = getattr(user, "llm_model", None) or ""
     return {
-        "provider": normalize_provider(getattr(user, "llm_provider", None)),
-        "model":    getattr(user, "llm_model", None) or "",
+        "provider": provider,
+        "model":    model,
+        "effective_model": model or LLM_PROVIDERS[provider]["default_model"],
+        "claude_models": [{k: m[k] for k in ("id", "label", "desc", "cost_hint", "recommended")}
+                          for m in MODEL_GUIDE],
         "providers": [{
             "id": pid, "label": cfg["label"], "default_model": cfg["default_model"],
             "experimental": cfg["experimental"], "key_hint": cfg["key_hint"],

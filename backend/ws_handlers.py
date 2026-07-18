@@ -37,7 +37,7 @@ def _action_signature(a: dict) -> str:
     return str(t)
 
 from backend.llm import (LLMClient, PROVIDERS as LLM_PROVIDERS, normalize_provider,
-                         LLMRateLimit, LLMTimeout, LLMCredits, LLMStatusError)
+                         model_info, LLMRateLimit, LLMTimeout, LLMCredits, LLMStatusError)
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1314,6 +1314,23 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             elif t == "reprofile_vps":
                 await clear_vps_profile()
                 await profile_vps()
+
+            elif t == "set_session_model":
+                # One-click boost (e.g. loop banner → Fable) — this session only;
+                # the user's saved Settings choice is untouched.
+                new_model = (msg.get("model") or "").strip()
+                if llm_provider == "anthropic" and new_model:
+                    try:
+                        llm  = LLMClient(llm_provider, effective_api_key, new_model)
+                        info = model_info(new_model)
+                        label = info["label"] if info else new_model
+                        await ws.send_json({"type": "status",
+                                            "message": f"🚀 Boosted to {label} for this session"})
+                    except Exception as e:
+                        await ws.send_json({"type": "error", "message": str(e)})
+                else:
+                    await ws.send_json({"type": "status",
+                                        "message": "Model boost is available on the Claude provider only"})
 
             elif t == "check_agent":
                 # Manual re-check — capture the live agent screen and feed it to Claude.

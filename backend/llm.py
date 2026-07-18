@@ -30,15 +30,56 @@ class LLMStatusError(Exception):
         self.message = message
 
 
+# ── Claude model ladder (supervisor quality tiers, plain-English) ─────────────
+# Prices: USD per 1M tokens. cache_read ≈ 0.1× input, cache_write ≈ 1.25× input.
+MODEL_GUIDE: list[dict] = [
+    {
+        "id": "claude-opus-4-8", "label": "Best (recommended)",
+        "desc": "Claude Opus — excellent judgement, rarely gets stuck. The default.",
+        "cost_hint": "typical session: a few dollars",
+        "context_window": 1_000_000, "recommended": True,
+        "price": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_write": 6.25},
+    },
+    {
+        "id": "claude-fable-5", "label": "Maximum",
+        "desc": "Claude Fable — Anthropic's most capable model, for when things are really stuck. ~2× cost.",
+        "cost_hint": "~2× Best",
+        "context_window": 1_000_000, "recommended": False,
+        "price": {"input": 10.00, "output": 50.00, "cache_read": 1.00, "cache_write": 12.50},
+    },
+    {
+        "id": "claude-sonnet-5", "label": "Balanced",
+        "desc": "Claude Sonnet — near-Best quality at about half the cost.",
+        "cost_hint": "~half of Best",
+        "context_window": 1_000_000, "recommended": False,
+        "price": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_write": 3.75},
+    },
+    {
+        "id": "claude-haiku-4-5-20251001", "label": "Budget",
+        "desc": "Claude Haiku — cheapest and fastest, but noticeably weaker on tricky problems.",
+        "cost_hint": "typical session: under a dollar",
+        "context_window": 200_000, "recommended": False,
+        "price": {"input": 1.00, "output": 5.00, "cache_read": 0.10, "cache_write": 1.25},
+    },
+]
+
+def model_info(model_id: str) -> Optional[dict]:
+    for m in MODEL_GUIDE:
+        # match exact ids, dated variants, and bare aliases (claude-haiku-4-5)
+        if m["id"] == model_id or model_id.startswith(m["id"]) or m["id"].startswith(model_id):
+            return m
+    return None
+
+
 # ── Provider registry ─────────────────────────────────────────────────────────
 # price: USD per 1M tokens for the DEFAULT model (0 = don't estimate cost).
 PROVIDERS: dict[str, dict] = {
     "anthropic": {
         "label": "Claude (Anthropic)", "cred": "_anthropic_key",
-        "default_model": "claude-haiku-4-5-20251001",
-        "context_window": 200_000, "experimental": False,
+        "default_model": "claude-opus-4-8",
+        "context_window": 1_000_000, "experimental": False,
         "key_hint": "sk-ant-…", "key_url": "https://console.anthropic.com/settings/api-keys",
-        "price": {"input": 0.80, "output": 4.00, "cache_read": 0.08, "cache_write": 1.00},
+        "price": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_write": 6.25},
     },
     "openai": {
         "label": "ChatGPT (OpenAI)", "cred": "_openai_key",
@@ -97,6 +138,11 @@ class LLMClient:
         self.price          = cfg["price"]
         self.label          = cfg["label"]
         if self.provider == "anthropic":
+            info = model_info(self.model)
+            if info:   # accurate cost/context for whichever Claude tier is chosen
+                self.context_window = info["context_window"]
+                self.price          = info["price"]
+        if self.provider == "anthropic":
             self._a = _anthropic.AsyncAnthropic(api_key=api_key)
         else:
             if _openai is None:
@@ -138,14 +184,25 @@ class LLMClient:
     async def _stream_anthropic(self, system, messages, max_tokens, on_chunk):
         try:
             full = ""
-            async with self._a.messages.stream(
-                model=self.model, max_tokens=max_tokens,
-                system=system, messages=messages,
-            ) as stream:
+            kwargs = dict(model=self.model, max_tokens=max_tokens,
+                          system=system, messages=messages)
+            if self.model.startswith("claude-fable"):
+                # Fable's safety classifiers can false-positive on legitimate
+                # server-admin work — fall back to Opus inside the same request.
+                stream_cm = self._a.beta.messages.stream(
+                    **kwargs, betas=["server-side-fallback-2026-06-01"],
+                    fallbacks=[{"model": "claude-opus-4-8"}])
+            else:
+                stream_cm = self._a.messages.stream(**kwargs)
+            async with stream_cm as stream:
                 async for chunk in stream.text_stream:
                     full += chunk
                     await on_chunk(chunk)
                 final = await stream.get_final_message()
+                if getattr(final, "stop_reason", None) == "refusal":
+                    raise LLMStatusError(
+                        200, "The AI declined this request for safety reasons — "
+                             "try rephrasing, or switch model in Settings.")
                 u = final.usage
                 usage = {
                     "input":       u.input_tokens,
@@ -154,6 +211,8 @@ class LLMClient:
                     "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0,
                 }
             return full, usage
+        except LLMStatusError:
+            raise
         except _anthropic.RateLimitError as e:
             raise LLMRateLimit(str(e)) from e
         except (_anthropic.APITimeoutError, _anthropic.APIConnectionError) as e:
