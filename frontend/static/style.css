@@ -548,7 +548,7 @@ html, body {
 .vps-output-pre { font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 11px; color: var(--text); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; background: var(--code-bg); border: 1px solid var(--code-bd); border-radius: 4px; padding: 6px 8px; margin: 0; }
 
 /* Chat input */
-.chat-input-area { border-top: 1px solid var(--border); padding: 12px 14px; display: flex; gap: 8px; background: var(--surface); flex-shrink: 0; }
+.chat-input-area { border-top: 1px solid var(--border); padding: 12px 14px 18px; display: flex; gap: 8px; background: var(--surface); flex-shrink: 0; }
 #chat-input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 15px; padding: 9px 12px; outline: none; transition: border-color 0.15s; resize: none; overflow-y: auto; min-height: 40px; max-height: 160px; line-height: 1.5; font-family: inherit; }
 #chat-input:focus { border-color: var(--accent); }
 #chat-send { background: var(--accent); color: var(--accent-text); border: none; border-radius: 8px; padding: 9px 18px; font-size: 15px; font-weight: 700; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0; }

@@ -166,11 +166,11 @@ first-time, every time — instead of dozens of failing loops.
 this app). **The OpenClaw agent has no Vault and cannot "retrieve" anything from one.**
 - **Never tell the agent to "save to" or "get from" the Vault**, and never *wait* for
   it to fetch a credential from one — it will loop forever on something that doesn't exist.
-- Secrets reach the agent only as **files in `/root/.openclaw/secrets/<NAME>`** (and/or
+- Secrets reach the agent only as **files in `/root/.openclaw/credentials/<NAME>`** (and/or
   env vars in `/root/.openclaw/.env`). That is the real contract.
-  - To give the agent a credential: [VPS_WRITE] the value to `/root/.openclaw/secrets/<NAME>`,
+  - To give the agent a credential: [VPS_WRITE] the value to `/root/.openclaw/credentials/<NAME>`,
     then tell the agent the **exact file path** to read — never the word "vault".
-  - To see what the agent already has: `ls /root/.openclaw/secrets/` (names only).
+  - To see what the agent already has: `ls /root/.openclaw/credentials/` (names only).
 - **Do not trust the agent's claims** that it "created an account" or "saved the
   credentials" — verify on disk. If the file isn't there, the secret does not exist:
   get the real value from the user (Console, or a non-secret value in chat) and write it

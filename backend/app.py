@@ -391,6 +391,7 @@ class CredentialIn(BaseModel):
     password:   str
     notes:      str = ""
     vps_synced: bool = False
+    vps_id:     str = ""       # active bot — which VPS to sync to
 
 @app.get("/api/credentials")
 async def list_credentials(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -426,13 +427,18 @@ async def save_credential(body: CredentialIn, user: User = Depends(get_current_u
     await db.refresh(cred)
 
     # Sync to the VPS so the OpenClaw agent can actually read it as a file.
-    secret_path = f"{OPENCLAW_SECRETS_DIR}/{_safe_secret_name(cred.name)}"
+    fname       = _safe_secret_name(cred.name)
+    secret_path = f"{OPENCLAW_SECRETS_DIR}/{fname}"
+    bot         = body.vps_id or None
     sync_error  = None
     if body.vps_synced:
         sync_error = await _vps_sftp_put(
-            user, db, secret_path, _secret_file_body(body.username, body.password, body.notes))
+            user, db, secret_path, _secret_file_body(body.username, body.password, body.notes),
+            vps_id=bot)
+        await _vps_rm_secret(user, db, f"{OLD_SECRETS_DIR}/{fname}")  # clean pre-fix location
     elif was_synced:
         await _vps_rm_secret(user, db, secret_path)   # user un-ticked sync → remove stale file
+        await _vps_rm_secret(user, db, f"{OLD_SECRETS_DIR}/{fname}")
 
     return {"id": str(cred.id), "name": cred.name,
             "synced": bool(body.vps_synced and sync_error is None),
@@ -460,6 +466,7 @@ async def delete_credential(cred_id: uuid.UUID, user: User = Depends(get_current
         raise HTTPException(404)
     if cred.vps_synced:
         await _vps_rm_secret(user, db, f"{OPENCLAW_SECRETS_DIR}/{_safe_secret_name(cred.name)}")
+        await _vps_rm_secret(user, db, f"{OLD_SECRETS_DIR}/{_safe_secret_name(cred.name)}")
     await db.delete(cred)
     await db.commit()
     return {"ok": True}
@@ -840,8 +847,12 @@ async def _vps_exec(user: User, db: AsyncSession, cmd: str, timeout: int = 60,
     return await asyncio.get_event_loop().run_in_executor(None, _run)
 
 
-# ── Vault → VPS sync (writes synced credentials to /root/.openclaw/secrets/) ──
-OPENCLAW_SECRETS_DIR = "/root/.openclaw/secrets"
+# ── Vault → VPS sync ──────────────────────────────────────────────────────────
+# OpenClaw's own convention is ~/.openclaw/credentials/ — the agent actually
+# reads from there. (We previously wrote to /root/.openclaw/secrets/, which the
+# agent never looked at.)
+OPENCLAW_SECRETS_DIR = "/root/.openclaw/credentials"
+OLD_SECRETS_DIR      = "/root/.openclaw/secrets"
 
 def _safe_secret_name(name: str) -> str:
     keep = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"

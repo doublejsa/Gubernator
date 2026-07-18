@@ -1223,7 +1223,7 @@ async function saveCredential() {
   if (!pass) { alert('Enter the password (re-enter to confirm edit)'); return; }
   const res = await fetch('/api/credentials', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, username: user, password: pass, notes, vps_synced: vps }),
+    body: JSON.stringify({ name, username: user, password: pass, notes, vps_synced: vps, vps_id: activeBotId }),
   });
   if (res.ok) {
     const d = await res.json().catch(() => ({}));

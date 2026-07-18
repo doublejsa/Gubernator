@@ -80,7 +80,7 @@ echo '### SkillsDir'; ls /usr/lib/node_modules/openclaw/skills/ 2>/dev/null
 echo '### Runtimes'; node --version 2>/dev/null; python3 --version 2>/dev/null
 echo '### Tools'; for t in playwright chromium google-chrome docker git nginx apache2 mysql psql ftp lftp rsync; do command -v "$t" >/dev/null 2>&1 && echo "$t: yes"; done
 echo '### ConfigFiles'; ls -1 /root/.openclaw/ 2>/dev/null
-echo '### Secrets(names only)'; ls -1 /root/.openclaw/secrets/ 2>/dev/null
+echo '### Credentials(names only)'; ls -1 /root/.openclaw/credentials/ 2>/dev/null; ls -1 /root/.openclaw/secrets/ 2>/dev/null
 echo '### EnvVarNames(names only)'; grep -oE '^[A-Z_0-9]+=' /root/.openclaw/.env 2>/dev/null | tr -d '='
 """
 

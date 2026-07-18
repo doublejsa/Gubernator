@@ -212,7 +212,7 @@
               </div>
             </div>
             <div><label>Notes (optional)</label><input id="cf-notes" placeholder="e.g. cPanel for example.com"/></div>
-            <label class="form-check"><input type="checkbox" id="cf-vps"/> Sync to VPS <span style="color:var(--dim);font-size:11px">(writes to /root/.openclaw/secrets/)</span></label>
+            <label class="form-check"><input type="checkbox" id="cf-vps" checked/> Sync to VPS <span style="color:var(--dim);font-size:11px">(so your agent can use it — writes to /root/.openclaw/credentials/)</span></label>
             <div class="cred-form-actions">
               <button class="btn-secondary" onclick="hideCredForm()">Cancel</button>
               <button class="btn-primary"   onclick="saveCredential()">Save</button>

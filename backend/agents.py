@@ -16,7 +16,7 @@ AGENTS: dict[str, dict] = {
         "icon":        "🦞",
         "tui_cmd":     "openclaw tui",
         "config_dir":  "/root/.openclaw",
-        "secrets_dir": "/root/.openclaw/secrets",
+        "secrets_dir": "/root/.openclaw/credentials",
         "restart_cmd": "openclaw gateway restart 2>/dev/null || systemctl restart openclaw-gateway",
         "version_cmd": "openclaw --version",
         "skills_cli":  True,    # ClawHub marketplace via `openclaw skills`
@@ -26,7 +26,7 @@ AGENTS: dict[str, dict] = {
         "icon":        "🪽",
         "tui_cmd":     "hermes --tui",
         "config_dir":  "/root/.hermes",
-        "secrets_dir": "/root/.hermes/secrets",
+        "secrets_dir": "/root/.hermes/credentials",
         "restart_cmd": "hermes gateway restart",
         "version_cmd": "hermes --version",
         "skills_cli":  False,   # different skills system — marketplace hidden
