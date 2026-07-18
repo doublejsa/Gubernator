@@ -187,14 +187,17 @@ function applyTerminalsState(animate) {
   const feed      = document.getElementById('whats-happening');
   const btn       = document.getElementById('terminals-toggle-btn');
 
+  const lbl = btn.querySelector('.nav-label');
   if (terminalsVisible) {
     terminals.style.display = '';
     feed.style.display      = 'none';
     btn.classList.add('active');
+    if (lbl) lbl.textContent = 'Hide Terminals';
   } else {
     terminals.style.display = 'none';
     feed.style.display      = '';
     btn.classList.remove('active');
+    if (lbl) lbl.textContent = 'Show Terminals';
   }
   // Reflow after CSS transition so xterm sizes correctly
   setTimeout(reflowTerminals, animate ? 320 : 0);
@@ -331,7 +334,7 @@ async function initModelSwitcher() {
   if (d.provider === 'anthropic') {
     // Header shows which Claude is running, with a dropdown to change it
     sel.innerHTML = (d.claude_models || []).map(m =>
-      `<option value="${m.id}" title="${esc(m.desc)}">Claude · ${esc(m.label.replace(' (recommended)', ''))}</option>`).join('');
+      `<option value="${m.id}" title="${esc(m.desc)}">Claude · ${esc(m.label)}</option>`).join('');
     sel.value = '';
     const cur = (d.claude_models || []).find(m =>
       m.id === d.effective_model || d.effective_model.startsWith(m.id) || m.id.startsWith(d.effective_model));
@@ -1744,9 +1747,9 @@ function llmProviderChanged() {
       ? llmSettings.effective_model : p.default_model;
     document.getElementById('sf-ladder').innerHTML = (llmSettings.claude_models || []).map(m => `
       <label style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;cursor:pointer">
-        <input type="radio" name="sf-tier" value="${m.id}" ${m.id === current ? 'checked' : ''} style="margin-top:3px"/>
-        <span style="flex:1">
-          <span style="font-weight:600">${esc(m.label)}</span>
+        <input type="radio" name="sf-tier" value="${m.id}" ${m.id === current ? 'checked' : ''} style="margin-top:3px;width:auto;flex-shrink:0"/>
+        <span style="flex:1;min-width:0">
+          <span style="font-weight:600">${esc(m.label)}${m.recommended ? ' — recommended' : ''}</span>
           <span style="color:var(--dim);font-size:12px;margin-left:6px">${esc(m.cost_hint)}</span><br/>
           <span style="color:var(--dim);font-size:12px">${esc(m.desc)}</span>
         </span>

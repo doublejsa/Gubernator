@@ -141,6 +141,8 @@ html, body {
 .nav-item.active { background: var(--accent-soft); color: var(--accent); }
 .nav-ico   { font-size: 15px; flex-shrink: 0; width: 18px; text-align: center; }
 .sidebar.collapsed .nav-label { display: none; }
+.nav-terminals { color: var(--accent); font-weight: 600; border: 1px solid var(--accent-bd); background: var(--accent-soft); }
+.nav-terminals:hover { background: var(--accent-bd); color: var(--accent); }
 .nav-build-tool { color: var(--warn-text); }
 .nav-build-tool:hover { background: var(--warn-bg); color: var(--warn-text); }
 

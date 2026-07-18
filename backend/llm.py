@@ -34,28 +34,28 @@ class LLMStatusError(Exception):
 # Prices: USD per 1M tokens. cache_read ≈ 0.1× input, cache_write ≈ 1.25× input.
 MODEL_GUIDE: list[dict] = [
     {
-        "id": "claude-opus-4-8", "label": "Best (recommended)",
+        "id": "claude-opus-4-8", "label": "Best (Opus)",
         "desc": "Claude Opus — excellent judgement, rarely gets stuck. The default.",
         "cost_hint": "typical session: a few dollars",
         "context_window": 1_000_000, "recommended": True,
         "price": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "cache_write": 6.25},
     },
     {
-        "id": "claude-fable-5", "label": "Maximum",
+        "id": "claude-fable-5", "label": "Maximum (Fable)",
         "desc": "Claude Fable — Anthropic's most capable model, for when things are really stuck. ~2× cost.",
         "cost_hint": "~2× Best",
         "context_window": 1_000_000, "recommended": False,
         "price": {"input": 10.00, "output": 50.00, "cache_read": 1.00, "cache_write": 12.50},
     },
     {
-        "id": "claude-sonnet-5", "label": "Balanced",
+        "id": "claude-sonnet-5", "label": "Balanced (Sonnet)",
         "desc": "Claude Sonnet — near-Best quality at about half the cost.",
         "cost_hint": "~half of Best",
         "context_window": 1_000_000, "recommended": False,
         "price": {"input": 3.00, "output": 15.00, "cache_read": 0.30, "cache_write": 3.75},
     },
     {
-        "id": "claude-haiku-4-5-20251001", "label": "Budget",
+        "id": "claude-haiku-4-5-20251001", "label": "Budget (Haiku)",
         "desc": "Claude Haiku — cheapest and fastest, but noticeably weaker on tricky problems.",
         "cost_hint": "typical session: under a dollar",
         "context_window": 200_000, "recommended": False,
