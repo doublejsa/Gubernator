@@ -94,7 +94,9 @@
       <div class="col" id="col-chat">
         <div class="col-header">
           <span class="col-icon">🤖</span>
-          <span class="col-title">Claude</span>
+          <span class="col-title" id="chat-title">Claude</span>
+          <select id="model-switcher" style="display:none" onchange="headerModelChanged(this.value)"
+                  title="Which Claude powers this assistant — change any time"></select>
           <span class="status-dot" id="status-chat"></span>
           <span class="status-label" id="status-label-chat">Connecting…</span>
           <div class="header-stats" id="claude-stats">

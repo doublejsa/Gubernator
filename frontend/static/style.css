@@ -324,6 +324,13 @@ html, body {
 }
 .col-icon  { font-size: 15px; }
 .col-title { font-size: 13px; font-weight: 600; }
+#model-switcher {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-size: 12px; font-weight: 600;
+  padding: 3px 6px; outline: none; cursor: pointer; font-family: inherit;
+  max-width: 170px;
+}
+#model-switcher:hover, #model-switcher:focus { border-color: var(--accent); }
 
 .col-header-titles {
   display: flex; flex-direction: column; gap: 1px; justify-content: center;

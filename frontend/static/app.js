@@ -319,19 +319,51 @@ function ovRecommend() {
 function boostModel() {
   if (!chatWs || chatWs.readyState !== WebSocket.OPEN) { alert('Not connected — try again in a moment.'); return; }
   chatWs.send(JSON.stringify({ type: 'set_session_model', model: 'claude-fable-5' }));
+  const sel = document.getElementById('model-switcher');
+  if (sel && sel.style.display !== 'none') sel.value = 'claude-fable-5';
 }
 
-async function maybeShowModelTip() {
-  // Existing accounts stayed pinned to Budget when the default moved to Best —
-  // recommend the upgrade once, ever.
-  if (localStorage.getItem('gov_model_tip_shown')) return;
+async function initModelSwitcher() {
+  let d;
+  try { d = await (await fetch('/api/llm')).json(); } catch (e) { return; }
+  const sel   = document.getElementById('model-switcher');
+  const title = document.getElementById('chat-title');
+  if (d.provider === 'anthropic') {
+    // Header shows which Claude is running, with a dropdown to change it
+    sel.innerHTML = (d.claude_models || []).map(m =>
+      `<option value="${m.id}" title="${esc(m.desc)}">Claude · ${esc(m.label.replace(' (recommended)', ''))}</option>`).join('');
+    sel.value = '';
+    const cur = (d.claude_models || []).find(m =>
+      m.id === d.effective_model || d.effective_model.startsWith(m.id) || m.id.startsWith(d.effective_model));
+    if (cur) sel.value = cur.id;
+    title.style.display = 'none';
+    sel.style.display = '';
+  } else {
+    const p = (d.providers || []).find(x => x.id === d.provider);
+    title.textContent = p ? p.label : 'AI';
+  }
+  // One-time nudge for accounts pinned to Budget when the default moved to Best
+  if (!localStorage.getItem('gov_model_tip_shown') &&
+      d.provider === 'anthropic' && (d.effective_model || '').includes('haiku')) {
+    showToast('💡 A smarter AI assistant is now recommended — use the dropdown at the top of the chat (“Best”)', 'success');
+    localStorage.setItem('gov_model_tip_shown', '1');
+  }
+}
+
+async function headerModelChanged(modelId) {
+  // Persist the choice, and apply it to the running session immediately
   try {
-    const d = await (await fetch('/api/llm')).json();
-    if (d.provider === 'anthropic' && (d.effective_model || '').includes('haiku')) {
-      showToast('💡 New: a smarter AI assistant is now recommended — see Settings → AI Assistant (“Best”)', 'success');
-      localStorage.setItem('gov_model_tip_shown', '1');
+    const res = await fetch('/api/llm', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'anthropic', model: modelId, api_key: '' }),
+    });
+    if (!res.ok) throw new Error('save failed');
+    if (chatWs && chatWs.readyState === WebSocket.OPEN) {
+      chatWs.send(JSON.stringify({ type: 'set_session_model', model: modelId }));
     }
-  } catch (e) {}
+  } catch (e) {
+    showToast('Couldn’t switch model — try again', 'error');
+  }
 }
 
 // ── Agent view reset ──────────────────────────────────────────────────────────
@@ -1747,6 +1779,7 @@ async function saveLlmSettings() {
     if (chatWs) { chatWs.close(); }
     llmSettings = await (await fetch('/api/llm')).json();
     llmProviderChanged();
+    initModelSwitcher();
   } else {
     alert('Failed to save AI settings');
   }
@@ -1962,7 +1995,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateAgentSubtitle();
   loadIdeas();
   await loadBots();   // must resolve the active bot before sockets connect
-  maybeShowModelTip();
+  initModelSwitcher();
 
   const tui   = initTerminal('tui-terminal',   '/ws/tui',   'tui');
   const shell = initTerminal('shell-terminal', '/ws/shell', 'shell');
