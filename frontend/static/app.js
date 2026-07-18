@@ -859,7 +859,16 @@ function confirmAction(id) {
 }
 function dismissAction(id) {
   chatWs.send(JSON.stringify({ type: 'dismiss', action_id: id }));
-  resolveAction(id, 'dismissed', 'Skipped');
+  resolveAction(id, 'dismissed', '');
+  const res = document.getElementById(`result-${id}`);
+  if (res) res.innerHTML = `Skipped · <button class="action-details-toggle" onclick="runAnyway('${id}')">Run anyway ▶</button>`;
+}
+function runAnyway(id) {
+  const el = document.getElementById(`action-${id}`);
+  if (el) el.className = 'action-bubble';
+  const res = document.getElementById(`result-${id}`);
+  if (res) res.textContent = '';
+  confirmAction(id);
 }
 function addCollapsibleOutput(icon, label, cmd, output) {
   const el = document.createElement('div'); el.className = 'vps-output-bubble';
@@ -1026,10 +1035,24 @@ function sendMessage() {
 }
 
 // ── Chat WebSocket ────────────────────────────────────────────────────────────
+let chatHadConnected = false;
+function expireStaleActions() {
+  // A new connection has a fresh action store — old Allow/Skip buttons can't work.
+  document.querySelectorAll('.action-bubble').forEach(el => {
+    if (el.querySelector('.btn-confirm')) {
+      resolveAction(el.id.replace('action-', ''), 'dismissed',
+                    '↻ Session reconnected — ask Claude again if still needed');
+    }
+  });
+}
 function initChat() {
   const url = `${WS_PROTO}://${HOST}/ws/chat?token=${encodeURIComponent(authToken)}${vpsParam('&')}`;
   chatWs = new WebSocket(url);
-  chatWs.onopen  = () => setStatus('chat', 'connected', 'Ready');
+  chatWs.onopen  = () => {
+    setStatus('chat', 'connected', 'Ready');
+    if (chatHadConnected) expireStaleActions();
+    chatHadConnected = true;
+  };
   chatWs.onclose = () => { setStatus('chat', 'error', 'Disconnected'); setTimeout(initChat, 3000); };
   chatWs.onerror = () => setStatus('chat', 'error', 'Error');
 
@@ -1056,6 +1079,8 @@ function initChat() {
         if (currentClaudeBubble) { currentClaudeBubble.remove(); currentClaudeBubble = null; }
         removeThinkingBubble();
         document.getElementById('claude-cancel-btn').style.display = 'none';
+        sending = false; setActionButtonsDisabled(false);
+        document.getElementById('chat-send').disabled = false;
         break;
       case 'chunk':
         if (!currentClaudeBubble) { removeThinkingBubble(); currentClaudeBubble = addBubble('claude', ''); }
@@ -1126,6 +1151,9 @@ function initChat() {
       case 'action_error':
         resolveAction(msg.action_id, 'error-state', `✗ ${msg.message}`);
         feedSet(feedByAction[msg.action_id], '✗', undefined, 'error');
+        removeThinkingBubble();
+        sending = false; setActionButtonsDisabled(false);
+        document.getElementById('chat-send').disabled = false;
         break;
       case 'action_dismissed':
         // Internal self-correction — quietly retire the superseded action.

@@ -1121,6 +1121,11 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 aid    = msg.get("action_id")
                 action = pending_actions.pop(aid, None)
                 if not action:
+                    # Pending actions live per-connection — after a reconnect or
+                    # deploy the id is gone. Never swallow the click silently.
+                    await ws.send_json({"type": "action_error", "action_id": aid,
+                                        "message": "This step expired when the session reconnected — ask Claude to run it again."})
+                    await ws.send_json({"type": "done"})
                     continue
 
                 if action["type"] == "tui_input":
@@ -1309,7 +1314,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                         await run_claude(f"File written: `{path}` ({wr_content.count(chr(10))+1} lines)\n{verify}")
 
             elif t == "dismiss":
-                pending_actions.pop(msg.get("action_id"), None)
+                pass   # keep the action so the "Run anyway" button can still execute it
 
             elif t == "reprofile_vps":
                 await clear_vps_profile()
