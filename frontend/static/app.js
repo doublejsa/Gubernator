@@ -23,6 +23,23 @@ async function checkAuth() {
   return user;
 }
 
+async function refreshAuth() {
+  // Sliding session — a fresh token means reconnecting sockets never expire
+  try {
+    const res = await fetch('/api/auth/refresh', { method: 'POST' });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.access_token) {
+      authToken = d.access_token;
+      localStorage.setItem('gov_token', d.access_token);
+    }
+  } catch (e) {}
+}
+setInterval(refreshAuth, 45 * 60 * 1000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshAuth();
+});
+
 async function doLogout() {
   await fetch('/api/auth/logout', { method: 'POST' });
   localStorage.removeItem('gov_token');
@@ -1990,6 +2007,7 @@ async function loadBillingSettings() {
 document.addEventListener('DOMContentLoaded', async () => {
   applyThemeLabel();
   await checkAuth();
+  refreshAuth();
   // Gate on subscription before anything else — paywall takes over the whole
   // screen and nothing else (onboarding, terminals) runs until they subscribe.
   const b = await fetchBilling();

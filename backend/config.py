@@ -16,7 +16,7 @@ IS_PRODUCTION  = GUBERNATOR_ENV == "production"
 # ── Auth ──────────────────────────────────────────────────────────────────────
 SECRET_KEY       = os.getenv("SECRET_KEY", "change-me-in-production")
 ALGORITHM        = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24h
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "43200"))  # 30 days (sliding — refreshed while the app is open)
 # Session cookie is Secure (HTTPS-only) in production. Override with COOKIE_SECURE=1/0.
 COOKIE_SECURE    = os.getenv("COOKIE_SECURE", "1" if IS_PRODUCTION else "0") == "1"
 

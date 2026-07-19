@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, delete as _sqldelete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.config import SECRET_KEY, ALGORITHM
+from backend.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 from backend.db import get_db, engine, Base, SessionLocal
 from backend.models import User, VpsConnection, Credential, Task, MemoryFact, AuditLog, ChatSession
 from backend.embeddings import embed
@@ -216,7 +216,21 @@ async def login(body: LoginIn, response: Response, db: AsyncSession = Depends(ge
     response.set_cookie(
         key="gubernator_session", value=token,
         httponly=True, samesite="lax", secure=COOKIE_SECURE,
-        max_age=86400
+        max_age=60 * ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@app.post("/api/auth/refresh")
+async def refresh_session(response: Response, user: User = Depends(get_current_user)):
+    """Sliding session: any valid session gets a fresh token + cookie, so an
+    open tab never silently expires under the user."""
+    from backend.config import COOKIE_SECURE
+    token = create_access_token(str(user.id))
+    response.set_cookie(
+        key="gubernator_session", value=token,
+        httponly=True, samesite="lax", secure=COOKIE_SECURE,
+        max_age=60 * ACCESS_TOKEN_EXPIRE_MINUTES,
     )
     return {"access_token": token, "token_type": "bearer"}
 
