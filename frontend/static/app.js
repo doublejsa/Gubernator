@@ -52,6 +52,17 @@ async function loadBots() {
   renderBots();
 }
 
+function activeBot() { return bots.find(b => b.id === activeBotId); }
+
+function applyAgentBranding() {
+  const b = activeBot();
+  const icon = (b && b.agent_icon) || '🤖';
+  const ico  = document.getElementById('agent-icon');   if (ico)  ico.textContent = icon;
+  const mico = document.getElementById('mtab-agent-ico'); if (mico) mico.textContent = icon;
+  const sub  = document.getElementById('agent-subtitle');
+  if (sub && b) sub.textContent = `${b.host} · powered by ${b.agent_label}`;
+}
+
 function renderBots() {
   const list = document.getElementById('bots-list');
   if (!list) return;
@@ -61,9 +72,7 @@ function renderBots() {
       <span class="nav-ico">${b.agent_icon || '🤖'}</span><span class="nav-label">${esc(b.label)}</span>
     </button>`).join('')
     + (bots.length < 3 ? `<button class="nav-item" onclick="openVpsModal()" title="Connect another bot"><span class="nav-ico">＋</span><span class="nav-label">Add bot</span></button>` : '');
-  const active = bots.find(b => b.id === activeBotId);
-  const sub = document.getElementById('agent-subtitle');
-  if (sub && active) sub.textContent = `powered by ${active.agent_label}`;
+  applyAgentBranding();
 }
 
 function switchBot(id) {
@@ -544,14 +553,7 @@ function updateAgentStatus(code, label) {
 
 // ── Agent subtitle ────────────────────────────────────────────────────────────
 async function updateAgentSubtitle() {
-  try {
-    const vpsList = await (await fetch('/api/vps')).json();
-    const vps = vpsList[0];
-    if (vps) {
-      const sub = document.getElementById('agent-subtitle');
-      if (sub) sub.textContent = `${vps.host} · powered by OpenClaw`;
-    }
-  } catch (_) {}
+  applyAgentBranding();   // branding comes from the active bot's agent type
 }
 
 function initDragDividers() {
@@ -878,7 +880,10 @@ function addCollapsibleOutput(icon, label, cmd, output) {
   document.getElementById('chat-messages').appendChild(el); scrollChat();
 }
 function addVpsOutputBubble(cmd, output) { addCollapsibleOutput('💻', 'VPS Output', cmd, output); }
-function addTuiOutputBubble(cmd, output) { addCollapsibleOutput('🦞', 'OpenClaw TUI Output', cmd, output); }
+function addTuiOutputBubble(cmd, output) {
+  const b = activeBot();
+  addCollapsibleOutput((b && b.agent_icon) || '🤖', `${(b && b.agent_label) || 'Agent'} TUI Output`, cmd, output);
+}
 function addVpsErrorBubble(detail) {
   // Only show once — remove any existing VPS error bubble first
   document.querySelectorAll('.vps-error-bubble').forEach(el => el.remove());
@@ -1120,7 +1125,7 @@ function initChat() {
         document.getElementById('tui-cancel-btn').style.display = 'none';
         updateAgentStatus('ready', 'Agent is ready');
         feedClearTransient();
-        feedAdd('🦞', 'Agent replied', 'done');
+        feedAdd((activeBot() && activeBot().agent_icon) || '🤖', 'Agent replied', 'done');
         addTuiOutputBubble(msg.cmd, msg.output); maybeShowTuiHint(msg.output); break;
 
       case 'agent_status':

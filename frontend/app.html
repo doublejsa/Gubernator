@@ -134,15 +134,15 @@
         <!-- Agent (formerly OpenClaw TUI) -->
         <div class="col" id="col-tui">
           <div class="col-header">
-            <span class="col-icon">🦞</span>
+            <span class="col-icon" id="agent-icon">🦞</span>
             <div class="col-header-titles">
               <span class="col-title">Agent</span>
-              <span class="col-subtitle" id="agent-subtitle">powered by OpenClaw</span>
+              <span class="col-subtitle" id="agent-subtitle">connecting…</span>
             </div>
             <span class="status-dot" id="status-tui"></span>
             <span class="status-label" id="status-label-tui">Connecting…</span>
             <div class="header-stats" id="tui-stats">
-              <span class="stat-badge accent" id="stat-oc-ctx"   title="OpenClaw context">—</span>
+              <span class="stat-badge accent" id="stat-oc-ctx"   title="Agent context">—</span>
               <span class="stat-badge"        id="stat-oc-cache" title="Cache hit rate">—</span>
               <button class="scroll-mode-btn" onclick="restartAgentView()" title="Reset this view if it looks stuck — the agent keeps running">↻ Reset view</button>
             </div>
@@ -185,7 +185,7 @@
     <nav class="mobile-tabs">
       <button class="mtab active" data-mview="chat"     onclick="switchMobileView('chat')">    <span class="mtab-ico">💬</span><span class="mtab-lbl">Chat</span></button>
       <button class="mtab"        data-mview="activity" onclick="switchMobileView('activity')"><span class="mtab-ico">📡</span><span class="mtab-lbl">Activity</span></button>
-      <button class="mtab"        data-mview="agent"    onclick="switchMobileView('agent')">   <span class="mtab-ico">🦞</span><span class="mtab-lbl">Agent</span></button>
+      <button class="mtab"        data-mview="agent"    onclick="switchMobileView('agent')">   <span class="mtab-ico" id="mtab-agent-ico">🦞</span><span class="mtab-lbl">Agent</span></button>
       <button class="mtab"        data-mview="console"  onclick="switchMobileView('console')"> <span class="mtab-ico">💻</span><span class="mtab-lbl">Console</span></button>
     </nav>
   </div>
@@ -212,7 +212,7 @@
               </div>
             </div>
             <div><label>Notes (optional)</label><input id="cf-notes" placeholder="e.g. cPanel for example.com"/></div>
-            <label class="form-check"><input type="checkbox" id="cf-vps" checked/> Sync to VPS <span style="color:var(--dim);font-size:11px">(so your agent can use it — writes to /root/.openclaw/credentials/)</span></label>
+            <label class="form-check"><input type="checkbox" id="cf-vps" checked/> Sync to VPS <span style="color:var(--dim);font-size:11px">(so your agent can use it — saved into your bot’s credentials folder)</span></label>
             <div class="cred-form-actions">
               <button class="btn-secondary" onclick="hideCredForm()">Cancel</button>
               <button class="btn-primary"   onclick="saveCredential()">Save</button>

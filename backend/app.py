@@ -428,8 +428,10 @@ async def save_credential(body: CredentialIn, user: User = Depends(get_current_u
 
     # Sync to the VPS so the OpenClaw agent can actually read it as a file.
     fname       = _safe_secret_name(cred.name)
-    secret_path = f"{OPENCLAW_SECRETS_DIR}/{fname}"
     bot         = body.vps_id or None
+    tgt_vps     = await _resolve_vps(user, db, bot)
+    secrets_dir = agent_cfg(getattr(tgt_vps, "agent_type", None) if tgt_vps else None)["secrets_dir"]
+    secret_path = f"{secrets_dir}/{fname}"
     sync_error  = None
     if body.vps_synced:
         sync_error = await _vps_sftp_put(

@@ -20,6 +20,7 @@ AGENTS: dict[str, dict] = {
         "restart_cmd": "openclaw gateway restart 2>/dev/null || systemctl restart openclaw-gateway",
         "version_cmd": "openclaw --version",
         "skills_cli":  True,    # ClawHub marketplace via `openclaw skills`
+        "install_hint": "npm install -g openclaw@latest, then `openclaw onboard` (check docs.openclaw.ai if that fails)",
     },
     "hermes": {
         "label":       "Hermes",
@@ -30,6 +31,9 @@ AGENTS: dict[str, dict] = {
         "restart_cmd": "hermes gateway restart",
         "version_cmd": "hermes --version",
         "skills_cli":  False,   # different skills system — marketplace hidden
+        "install_hint": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash, "
+                        "then `hermes setup` (interactive — user runs it in the Console), "
+                        "then `hermes gateway install` to run it as a service",
     },
 }
 DEFAULT_AGENT = "openclaw"

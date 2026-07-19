@@ -47,6 +47,7 @@ from backend.terminal import PTYSession
 from backend.vault import get_user_vault_key, decrypt_secret, encrypt_secret
 from backend.embeddings import embed
 from backend.audit import redact as _redact
+from backend.agents import agent_cfg
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 TMUX_SESSION        = "ocmgr-tui"
@@ -72,16 +73,19 @@ _AWAITING_RE = re.compile(
 TUI_LOG_DIR = Path.home() / "gubernator_logs"
 
 # Read-only VPS profiling probe — captures capabilities, never secret values.
-VPS_PROBE_CMD = r"""
+# Built per agent framework (OpenClaw vs Hermes paths and CLIs differ).
+def build_probe(agent: dict) -> str:
+    skills = ("openclaw skills 2>/dev/null | head -120" if agent.get("skills_cli")
+              else f"ls {agent['config_dir']}/skills/ 2>/dev/null")
+    return f"""
 echo '### OS'; (cat /etc/os-release 2>/dev/null | grep PRETTY_NAME); uname -sr
-echo '### OpenClaw'; openclaw --version 2>/dev/null || echo 'openclaw: not found'
-echo '### Skills'; openclaw skills 2>/dev/null | head -120
-echo '### SkillsDir'; ls /usr/lib/node_modules/openclaw/skills/ 2>/dev/null
+echo '### Agent'; {agent['version_cmd']} 2>/dev/null || echo '{agent['label']}: not installed'
+echo '### Skills'; {skills}
 echo '### Runtimes'; node --version 2>/dev/null; python3 --version 2>/dev/null
 echo '### Tools'; for t in playwright chromium google-chrome docker git nginx apache2 mysql psql ftp lftp rsync; do command -v "$t" >/dev/null 2>&1 && echo "$t: yes"; done
-echo '### ConfigFiles'; ls -1 /root/.openclaw/ 2>/dev/null
-echo '### Credentials(names only)'; ls -1 /root/.openclaw/credentials/ 2>/dev/null; ls -1 /root/.openclaw/secrets/ 2>/dev/null
-echo '### EnvVarNames(names only)'; grep -oE '^[A-Z_0-9]+=' /root/.openclaw/.env 2>/dev/null | tr -d '='
+echo '### ConfigFiles'; ls -1 {agent['config_dir']}/ 2>/dev/null
+echo '### Credentials(names only)'; ls -1 {agent['secrets_dir']}/ 2>/dev/null
+echo '### EnvVarNames(names only)'; grep -oE '^[A-Z_0-9]+=' {agent['config_dir']}/.env 2>/dev/null | tr -d '='
 """
 
 # Match a heredoc operator (<< or <<-), but never a here-string (<<<).
@@ -140,7 +144,7 @@ VPS_PROFILE_PROMPT = (
     "[VPS PROFILE SCAN] The user just connected this VPS. Below is a read-only scan of "
     "what's installed and configured on it. Distill it into durable capability facts using "
     "[REMEMBER:vps_profile] tags — one tag per meaningful capability or installed component.\n\n"
-    "Capture: OpenClaw version; what the agent can do (e.g. can_browse_web if Playwright/Chromium "
+    "Capture: {label} version; what the agent can do (e.g. can_browse_web if Playwright/Chromium "
     "present, has_docker, has_mysql); language runtimes; and which config files / secrets / env "
     "vars EXIST (names only — never values).\n\n"
     "CRITICAL — the installed agent skills are the most important fact. Record the COMPLETE list "
@@ -150,7 +154,8 @@ VPS_PROFILE_PROMPT = (
     "Do NOT record transient state (free memory, disk usage, running processes).\n"
     "Keep other facts concise. Use clear snake_case keys.\n\n"
     "After the [REMEMBER] tags, give the user a friendly 2–3 sentence plain-English summary of "
-    "what their agent can do, based on what you found.\n\n"
+    "what their agent can do, based on what you found. If {label} is NOT installed on this VPS, "
+    "say so and offer to install {label} (never a different agent framework).\n\n"
     "Scan output:\n{scan}"
 )
 
@@ -569,6 +574,16 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
     if not vps_conn:
         await ws.send_json({"type": "error", "message": "No VPS configured. Add one in Settings."})
     active_vps_id = vps_conn.id if vps_conn else None   # scopes chat/memory/tasks/audit to this bot
+    agent_info = agent_cfg(getattr(vps_conn, "agent_type", None) if vps_conn else None)
+    agent_block = (
+        f"## About this bot\n"
+        f"The agent on this VPS is **{agent_info['label']}** {agent_info['icon']} — NOT any other framework.\n"
+        f"- Config dir: {agent_info['config_dir']}\n"
+        f"- Credentials folder (Vault 'Sync to VPS' writes here): {agent_info['secrets_dir']}\n"
+        f"- Restart the agent: `{agent_info['restart_cmd']}`\n"
+        f"- If {agent_info['label']} is not installed yet, offer to install it: {agent_info['install_hint']}\n"
+        f"Wherever the general guide says OpenClaw paths, use this bot's paths above instead."
+    )
 
     def get_vps_creds():
         if not vps_conn:
@@ -620,11 +635,12 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             .order_by(MemoryFact.category, MemoryFact.key)
         )).scalars().all()
         if not facts:
-            memory_block_text = ""
+            memory_block_text = agent_block
             return
         lines = [f"- {f.key}: {f.value}" + (f"  [{f.category}]" if f.category != "general" else "")
                  for f in facts]
         memory_block_text = (
+            agent_block + "\n\n"
             "## What you remember about this user's setup\n"
             "Durable facts carried across all sessions. Treat as authoritative unless "
             "the user corrects you. If something here is now wrong, update it with [REMEMBER].\n\n"
@@ -653,11 +669,11 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             return
         await ws.send_json({"type": "status",
                             "message": "🔍 Profiling your VPS — checking what's installed…"})
-        scan = await run_vps_cmd(VPS_PROBE_CMD)
+        scan = await run_vps_cmd(build_probe(agent_info))
         if not scan or "(VPS shell not connected)" in scan:
             await ws.send_json({"type": "status", "message": "⚠ Couldn't scan the VPS — skipping profile"})
             return
-        full = await stream_claude(VPS_PROFILE_PROMPT.format(scan=scan))
+        full = await stream_claude(VPS_PROFILE_PROMPT.format(scan=scan, label=agent_info['label']))
         if full:
             await finish_response(full)   # persists [REMEMBER:vps_profile] facts
 

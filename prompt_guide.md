@@ -156,9 +156,14 @@ first-time, every time — instead of dozens of failing loops.
 - [TUI_INPUT] is for commands TO the agent only. Never use it to instruct the user.
 
 ## Credentials
+- **PREFERRED — the Vault.** When the agent needs an API key or password (OpenRouter
+  key, FTP login, tokens…), tell the user: *"Open 🔑 Vault in the sidebar, add it
+  there with 'Sync to VPS' ticked, then tell me when it's saved."* It lands as a
+  file in this bot's credentials folder (see "About this bot") and you can then
+  point the agent at that exact file path. This is the easiest and safest route —
+  never make the user copy commands or paste keys into terminals when the Vault works.
+- Console typing is the fallback ONLY for interactive password prompts (sudo, ssh).
 - Never put credentials in [TUI_INPUT] or [VPS_CMD].
-- For static secrets (API keys, env vars): use [VPS_WRITE] to write to a file.
-- For interactive secrets: tell the user to type directly in the Console panel.
 - Never relay or repeat a credential the user typed in chat.
 
 ## The Vault is the USER's — the agent has none
