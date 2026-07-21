@@ -922,6 +922,19 @@ ${reason}<br><br>
   scrollChat();
 }
 
+function addBadApiKeyBubble(provider) {
+  const label = provider || 'Claude (Anthropic)';
+  const el = document.createElement('div');
+  el.className = 'bubble credits-error';
+  el.innerHTML = `
+🔑 <strong>${esc(label)} rejected your API key</strong><br><br>
+The key saved in Gubernator is invalid, revoked, or expired — so ${esc(label)} won't respond.<br><br>
+<button class="retry-btn" onclick="openSettingsModal()" style="margin-bottom:6px">⚙️ Update your API key in Settings</button>
+  `.trim();
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat();
+}
+
 function addNoApiKeyBubble(provider) {
   const label = provider || 'Claude (Anthropic)';
   const el = document.createElement('div');
@@ -1189,6 +1202,7 @@ function initChat() {
         if (msg.subtype === 'credits_exhausted') addCreditsBubble();
         else if (msg.subtype === 'rate_limit')   addRateLimitBubble();
         else if (msg.subtype === 'no_api_key')   addNoApiKeyBubble(msg.provider);
+        else if (msg.subtype === 'bad_api_key')  addBadApiKeyBubble(msg.provider);
         else if (msg.subtype === 'auth_expired') { localStorage.removeItem('gov_token'); location.href = '/'; }
         else if (msg.subtype === 'subscription_required') { showPaywall(); }
         else addFriendlyError(msg.message || 'Unknown error');

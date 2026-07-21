@@ -37,7 +37,7 @@ def _action_signature(a: dict) -> str:
     return str(t)
 
 from backend.llm import (LLMClient, PROVIDERS as LLM_PROVIDERS, normalize_provider,
-                         model_info, LLMRateLimit, LLMTimeout, LLMCredits, LLMStatusError)
+                         model_info, LLMRateLimit, LLMTimeout, LLMCredits, LLMStatusError, LLMAuth)
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -944,6 +944,13 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             if claude_history and claude_history[-1]["role"] == "user":
                 claude_history.pop()
             await ws.send_json({"type": "error", "subtype": "credits_exhausted", "message": str(e)})
+            return ""
+        except LLMAuth:
+            await ws.send_json({"type": "claude_cancel"})
+            if claude_history and claude_history[-1]["role"] == "user":
+                claude_history.pop()
+            await ws.send_json({"type": "error", "subtype": "bad_api_key",
+                                "provider": llm.label})
             return ""
         except LLMStatusError as e:
             await ws.send_json({"type": "claude_cancel"})

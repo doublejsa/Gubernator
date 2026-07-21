@@ -23,6 +23,8 @@ class LLMRateLimit(Exception): pass
 class LLMTimeout(Exception): pass
 class LLMCredits(Exception):
     """Out of credits / quota — message carries the provider's own wording."""
+class LLMAuth(Exception):
+    """API key rejected (401) — the user must fix their key."""
 class LLMStatusError(Exception):
     def __init__(self, status_code: int, message: str):
         super().__init__(message)
@@ -217,9 +219,13 @@ class LLMClient:
             raise LLMRateLimit(str(e)) from e
         except (_anthropic.APITimeoutError, _anthropic.APIConnectionError) as e:
             raise LLMTimeout(str(e)) from e
+        except _anthropic.AuthenticationError as e:
+            raise LLMAuth(str(e)) from e
         except _anthropic.APIStatusError as e:
             body = e.body if isinstance(e.body, dict) else {}
             msg  = (body.get("error", {}) or {}).get("message", str(e))
+            if e.status_code == 401 or "x-api-key" in msg.lower():
+                raise LLMAuth(msg) from e
             if "credit" in msg.lower():
                 raise LLMCredits(msg) from e
             raise LLMStatusError(e.status_code, msg) from e
@@ -257,8 +263,12 @@ class LLMClient:
             raise LLMRateLimit(str(e)) from e
         except (_openai.APITimeoutError, _openai.APIConnectionError) as e:
             raise LLMTimeout(str(e)) from e
+        except _openai.AuthenticationError as e:
+            raise LLMAuth(str(e)) from e
         except _openai.APIStatusError as e:
             msg = str(e)
+            if e.status_code == 401:
+                raise LLMAuth(msg) from e
             if e.status_code == 402 or "quota" in msg.lower() or "credit" in msg.lower():
                 raise LLMCredits(msg) from e
             raise LLMStatusError(e.status_code, msg) from e
