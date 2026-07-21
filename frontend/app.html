@@ -212,6 +212,10 @@
               </div>
             </div>
             <div><label>Notes (optional)</label><input id="cf-notes" placeholder="e.g. cPanel for example.com"/></div>
+            <div>
+              <label>…or upload a credential file <span style="color:var(--dim)">(e.g. client_secret.json from Google — instead of a password)</span></label>
+              <input id="cf-file" type="file" style="font-size:12px"/>
+            </div>
             <label class="form-check"><input type="checkbox" id="cf-vps" checked/> Sync to VPS <span style="color:var(--dim);font-size:11px">(so your agent can use it — saved into your bot’s credentials folder)</span></label>
             <div class="cred-form-actions">
               <button class="btn-secondary" onclick="hideCredForm()">Cancel</button>

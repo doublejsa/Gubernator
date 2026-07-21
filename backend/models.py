@@ -62,6 +62,7 @@ class Credential(Base):
     username:     Mapped[str]       = mapped_column(String, default="")
     password_enc: Mapped[str]       = mapped_column(Text, nullable=False)         # Fernet-encrypted
     notes:        Mapped[str]       = mapped_column(String, default="")
+    filename:     Mapped[Optional[str]] = mapped_column(String, nullable=True)  # set → file credential; password_enc holds the file body
     vps_synced:   Mapped[bool]      = mapped_column(Boolean, default=False)
     created_at:   Mapped[datetime]  = mapped_column(DateTime, default=datetime.utcnow)
     updated_at:   Mapped[datetime]  = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -21,6 +21,7 @@ AGENTS: dict[str, dict] = {
         "version_cmd": "openclaw --version",
         "skills_cli":  True,    # ClawHub marketplace via `openclaw skills`
         "install_hint": "npm install -g openclaw@latest, then `openclaw onboard` (check docs.openclaw.ai if that fails)",
+        "awareness_path": "/root/.openclaw/workspace/GUBERNATOR.md",
     },
     "hermes": {
         "label":       "Hermes",
@@ -34,6 +35,7 @@ AGENTS: dict[str, dict] = {
         "install_hint": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash, "
                         "then `hermes setup` (interactive — user runs it in the Console), "
                         "then `hermes gateway install` to run it as a service",
+        "awareness_path": "/root/.hermes/GUBERNATOR.md",
     },
 }
 DEFAULT_AGENT = "openclaw"

@@ -84,6 +84,8 @@ async def startup():
         # Multi-bot: agent type per VPS + per-bot scoping of chat/memory/tasks/audit
         await conn.execute(text(
             "ALTER TABLE vps_connections ADD COLUMN IF NOT EXISTS agent_type VARCHAR DEFAULT 'openclaw'"))
+        await conn.execute(text(
+            "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS filename VARCHAR"))
         for t in ("chat_sessions", "tasks", "memory_facts", "audit_log"):
             await conn.execute(text(
                 f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS vps_id UUID "
@@ -404,6 +406,7 @@ class CredentialIn(BaseModel):
     username:   str = ""
     password:   str
     notes:      str = ""
+    filename:   str = ""       # set → file credential; password carries the file body
     vps_synced: bool = False
     vps_id:     str = ""       # active bot — which VPS to sync to
 
@@ -414,6 +417,7 @@ async def list_credentials(user: User = Depends(get_current_user), db: AsyncSess
     # Never return password values in list — names and metadata only
     return [{"id": str(c.id), "name": c.name, "username": c.username,
              "notes": c.notes, "vps_synced": c.vps_synced,
+             "filename": getattr(c, "filename", None),
              "updated_at": c.updated_at.isoformat()} for c in creds]
 
 @app.post("/api/credentials")
@@ -430,27 +434,29 @@ async def save_credential(body: CredentialIn, user: User = Depends(get_current_u
         cred.username     = body.username
         cred.password_enc = password_enc
         cred.notes        = body.notes
+        cred.filename     = body.filename or None
         cred.vps_synced   = body.vps_synced
     else:
         cred = Credential(
             user_id=user.id, name=body.name, username=body.username,
-            password_enc=password_enc, notes=body.notes, vps_synced=body.vps_synced,
+            password_enc=password_enc, notes=body.notes, filename=body.filename or None,
+            vps_synced=body.vps_synced,
         )
         db.add(cred)
     await db.commit()
     await db.refresh(cred)
 
     # Sync to the VPS so the OpenClaw agent can actually read it as a file.
-    fname       = _safe_secret_name(cred.name)
+    # File credentials keep their real filename (client_secret.json etc.)
+    fname       = _safe_secret_name(body.filename) if body.filename else _safe_secret_name(cred.name)
     bot         = body.vps_id or None
     tgt_vps     = await _resolve_vps(user, db, bot)
     secrets_dir = agent_cfg(getattr(tgt_vps, "agent_type", None) if tgt_vps else None)["secrets_dir"]
     secret_path = f"{secrets_dir}/{fname}"
     sync_error  = None
     if body.vps_synced:
-        sync_error = await _vps_sftp_put(
-            user, db, secret_path, _secret_file_body(body.username, body.password, body.notes),
-            vps_id=bot)
+        content = body.password if body.filename else _secret_file_body(body.username, body.password, body.notes)
+        sync_error = await _vps_sftp_put(user, db, secret_path, content, vps_id=bot)
         await _vps_rm_secret(user, db, f"{OLD_SECRETS_DIR}/{fname}")  # clean pre-fix location
     elif was_synced:
         await _vps_rm_secret(user, db, secret_path)   # user un-ticked sync → remove stale file
@@ -481,8 +487,9 @@ async def delete_credential(cred_id: uuid.UUID, user: User = Depends(get_current
     if not cred:
         raise HTTPException(404)
     if cred.vps_synced:
-        await _vps_rm_secret(user, db, f"{OPENCLAW_SECRETS_DIR}/{_safe_secret_name(cred.name)}")
-        await _vps_rm_secret(user, db, f"{OLD_SECRETS_DIR}/{_safe_secret_name(cred.name)}")
+        fn = _safe_secret_name(getattr(cred, "filename", None) or cred.name)
+        await _vps_rm_secret(user, db, f"{OPENCLAW_SECRETS_DIR}/{fn}")
+        await _vps_rm_secret(user, db, f"{OLD_SECRETS_DIR}/{fn}")
     await db.delete(cred)
     await db.commit()
     return {"ok": True}

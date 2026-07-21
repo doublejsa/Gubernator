@@ -1232,7 +1232,7 @@ async function loadCredentials() {
       <thead><tr><th>Name</th><th>Username</th><th>VPS</th><th></th></tr></thead>
       <tbody>${creds.map(c => `
         <tr>
-          <td><span class="cred-name">${esc(c.name)}</span></td>
+          <td><span class="cred-name">${esc(c.name)}</span>${c.filename ? ` <span class="cred-badge" title="File credential">📄 ${esc(c.filename)}</span>` : ''}</td>
           <td><span class="cred-user">${esc(c.username||'—')}</span></td>
           <td>${c.vps_synced ? '<span class="cred-badge">synced</span>' : ''}</td>
           <td><div class="cred-actions">
@@ -1261,19 +1261,26 @@ async function editCredential(id, name, username, notes, vps) {
 }
 
 async function saveCredential() {
-  const name  = document.getElementById('cf-name').value.trim();
+  let   name  = document.getElementById('cf-name').value.trim();
   const user  = document.getElementById('cf-user').value.trim();
-  const pass  = document.getElementById('cf-pass').value;
+  let   pass  = document.getElementById('cf-pass').value;
   const notes = document.getElementById('cf-notes').value.trim();
   const vps   = document.getElementById('cf-vps').checked;
+  const fileEl = document.getElementById('cf-file');
+  let   filename = '';
+  if (fileEl && fileEl.files && fileEl.files[0]) {
+    const f = fileEl.files[0];
+    if (f.size > 200 * 1024) { alert('File too large — credential files are usually a few KB.'); return; }
+    filename = f.name;
+    pass     = await f.text();           // file body travels in the password field, encrypted at rest
+    if (!name) name = f.name.replace(/\.[^.]+$/, '');
+  }
   if (!name) { alert('Name is required'); return; }
-  if (!pass && !document.getElementById('cf-name').disabled) { alert('Password is required'); return; }
-  // If editing with blank password, we skip — but we still need a value to send
-  // For now, require it. Future: PATCH endpoint that allows partial update.
-  if (!pass) { alert('Enter the password (re-enter to confirm edit)'); return; }
+  if (!pass) { alert(filename ? 'Could not read the file' : 'Enter the password (re-enter to confirm edit)'); return; }
   const res = await fetch('/api/credentials', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, username: user, password: pass, notes, vps_synced: vps, vps_id: activeBotId }),
+    body: JSON.stringify({ name, username: user, password: pass, notes, filename,
+                           vps_synced: vps, vps_id: activeBotId }),
   });
   if (res.ok) {
     const d = await res.json().catch(() => ({}));
