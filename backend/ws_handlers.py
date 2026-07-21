@@ -561,15 +561,22 @@ async def pty_ws_handler(ws: WebSocket, session: PTYSession,
 
     async def ws_to_pty():
         while True:
+            # Only a dropped socket ends the loop. A single malformed frame must
+            # NEVER kill input for the whole session — that leaves a terminal
+            # that still shows output but silently ignores every keystroke.
             try:
                 text = await ws.receive_text()
-                msg  = json.loads(text)
-                if msg["type"] == "input":
-                    session.write(msg["data"].encode())
-                elif msg["type"] == "resize":
-                    session.resize(msg["cols"], msg["rows"])
-            except (WebSocketDisconnect, Exception):
+            except Exception:
                 break
+            try:
+                msg = json.loads(text)
+                if msg.get("type") == "input":
+                    session.write(str(msg.get("data", "")).encode())
+                elif msg.get("type") == "resize":
+                    session.resize(int(msg["cols"]), int(msg["rows"]))
+            except Exception as e:
+                print("[gubernator] ignoring bad terminal frame:", repr(e), flush=True)
+                continue
 
     try:
         await asyncio.gather(pty_to_ws(), ws_to_pty())
