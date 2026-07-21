@@ -3,7 +3,7 @@ WebSocket handlers — TUI terminal, VPS shell, Claude chat.
 All handlers require auth via ?token= query param (set from cookie on connect).
 """
 from __future__ import annotations
-import asyncio, json, re, uuid
+import asyncio, json, re, uuid, traceback
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -950,6 +950,8 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             await ws.send_json({"type": "error", "message": f"API error {e.status_code}: {e.message}"})
             return ""
         except Exception as e:
+            print("[gubernator] stream_claude failed:", repr(e), flush=True)
+            traceback.print_exc()
             await ws.send_json({"type": "error", "message": str(e)})
             return ""
         claude_history.append({"role": "assistant", "content": full})
@@ -1024,6 +1026,13 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 await task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                # The reply already streamed — a failure in post-processing
+                # (persisting facts/tasks, audit) must not nuke the turn.
+                print("[gubernator] finish_response failed:", repr(e), flush=True)
+                traceback.print_exc()
+                try: await ws.send_json({"type": "done"})
+                except Exception: pass
 
     async def poll_tui_until_done() -> str:
         _SPINNER  = set("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
