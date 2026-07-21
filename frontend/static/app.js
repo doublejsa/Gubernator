@@ -356,13 +356,20 @@ function ovRecommend() {
 }
 
 // ── Unstick the agent TUI (Esc closes its search / menu overlays) ─────────────
-function sendTuiEscape() {
+async function sendTuiEscape() {
+  // Cancel tmux copy-mode server-side — reliable even after a page refresh,
+  // when the browser has no idea scroll mode is still active.
+  try {
+    await fetch(`/api/agent/exit-scroll?${vpsParam('')}`, { method: 'POST' });
+  } catch (e) {}
   if (tuiWs && tuiWs.readyState === WebSocket.OPEN) {
-    tuiWs.send('\x1b');            // ESC
-    setTimeout(() => { if (tuiTerm) tuiTerm.focus(); }, 50);
-  } else {
-    showToast('Agent panel isn’t connected', 'error');
+    tuiWs.send(JSON.stringify({ type: 'input', data: '\x1b' }));   // ESC for the agent's own menus
   }
+  tuiScrollActive = false;
+  const btn = document.getElementById('tui-scroll-btn');
+  if (btn) { btn.textContent = '↑ Scroll'; btn.classList.remove('active'); btn.onclick = enterTuiScrollMode; }
+  if (tuiTerm) tuiTerm.focus();
+  showToast('Agent panel unstuck — you can type now', 'success');
 }
 
 // ── Session model boost ───────────────────────────────────────────────────────

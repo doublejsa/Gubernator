@@ -934,6 +934,19 @@ async def _vps_rm_secret(user: User, db: AsyncSession, path: str) -> None:
         pass
 
 
+@app.post("/api/agent/exit-scroll")
+async def exit_scroll(vps_id: str = "", user: User = Depends(get_current_user),
+                      db: AsyncSession = Depends(get_db)):
+    """Cancel tmux copy-mode on the agent pane. Typing is swallowed while it's
+    active, and mouse-wheel scrolling enters it silently."""
+    out = await _vps_exec(
+        user, db,
+        "[ \"$(tmux display-message -p -t ocmgr-tui '#{pane_in_mode}' 2>/dev/null)\" = 1 ] "
+        "&& tmux send-keys -t ocmgr-tui -X cancel 2>&1; echo ok",
+        timeout=15, vps_id=vps_id or None)
+    return {"ok": True, "output": out.strip()}
+
+
 @app.post("/api/agent/restart-view")
 async def restart_agent_view(vps_id: str = "", user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Kill the agent's terminal view (tmux session). The agent itself keeps
@@ -1118,8 +1131,12 @@ async def ws_tui(ws: WebSocket, token: str = Query(...), vps_id: str = Query(Non
         password  = decrypt_secret(vault_key, vps.password_enc) if vps.password_enc else ""
         agent = agent_cfg(vps.agent_type)
         TMUX = "ocmgr-tui"
+        # Leaving tmux in copy-mode (scrollback) swallows every keystroke — and
+        # mouse-wheel scrolling enters it silently. Always cancel it on attach.
         cmd  = (f"tmux new-session -d -x 220 -y 50 -s {TMUX} '{agent['tui_cmd']}' 2>/dev/null; "
                 f"tmux set-option -t {TMUX} mouse on 2>/dev/null; "
+                f"[ \"$(tmux display-message -p -t {TMUX} '#{{pane_in_mode}}' 2>/dev/null)\" = 1 ] "
+                f"&& tmux send-keys -t {TMUX} -X cancel 2>/dev/null; "
                 f"tmux attach-session -t {TMUX}")
         sessions = get_user_sessions(str(user.id), str(vps.id))
         await pty_ws_handler(ws, PTYSession(), vps.host, vps.port, vps.username, password, cmd, "tui", sessions)
