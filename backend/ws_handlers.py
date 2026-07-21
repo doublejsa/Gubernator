@@ -223,7 +223,8 @@ _BUSY_KEYWORDS_OPENCLAW = (
     'streaming', 'moseying', 'taking longer than expected',
     'processing', 'esc to interrupt', 'thinking',
 )
-_BUSY_KEYWORDS_GENERIC = ('esc to interrupt', 'generating', 'working…', 'streaming…')
+_BUSY_KEYWORDS_GENERIC = ('esc to interrupt', 'generating', 'responding',
+                          'thinking…', 'running…', 'searching…', 'calling tool')
 def _busy_keywords(agent: str) -> tuple:
     return _BUSY_KEYWORDS_OPENCLAW if agent == 'openclaw' else _BUSY_KEYWORDS_GENERIC
 
@@ -235,6 +236,8 @@ def _busy_keywords(agent: str) -> tuple:
 _FOOTER_LINE_RE    = re.compile(
     r'(?m)^.*(tokens\s+\d+[km]?/\d+[km]?'
     r'|agent\s+\w+\s*\|\s*session'
+    r'|voice\s+o(?:n|ff)\s*\|'                      # Hermes: "voice off | 1 session"
+    r'|\|\s*\d+\s*sessions?\b'
     r'|•\s*\d+m(?:\s+\d+s)?\s*\|\s*connected).*$')
 _FOOTER_ELAPSED_RE = re.compile(r'(\d+)m(?:\s+\d+s)?\s*\|')
 _STALE_BUSY_MINUTES = 30   # no single response runs this long — counter is uptime
@@ -244,7 +247,11 @@ def is_agent_busy(screen: str, agent: str = "openclaw") -> bool:
     kws   = _busy_keywords(agent)
     body  = _FOOTER_LINE_RE.sub('', screen)
     lower = body.lower()
-    if any(c in body for c in _AGENT_SPINNER) or any(kw in lower for kw in kws):
+    # Braille spinner is a busy signal for OpenClaw, but Hermes draws a braille
+    # ASCII-art logo on its idle screen — so only trust the spinner for OpenClaw.
+    if agent == "openclaw" and any(c in body for c in _AGENT_SPINNER):
+        return True
+    if any(kw in lower for kw in kws):
         return True
     # Busy words on the footer line count only while its counter is plausible.
     for line in screen.splitlines():
