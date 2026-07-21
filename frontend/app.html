@@ -144,9 +144,9 @@
             <div class="header-stats" id="tui-stats">
               <span class="stat-badge accent" id="stat-oc-ctx"   title="Agent context">—</span>
               <span class="stat-badge"        id="stat-oc-cache" title="Cache hit rate">—</span>
-              <button class="scroll-mode-btn" onclick="restartAgentView()" title="Reset this view if it looks stuck — the agent keeps running">↻ Reset view</button>
             </div>
             <span class="agent-status-pill" id="agent-status-pill" data-status="ready">🟢 Ready</span>
+            <button class="scroll-mode-btn tui-reset-btn" onclick="restartAgentView()" title="Reset this view if it looks stuck — the agent keeps running">↻ Reset</button>
             <button class="scroll-mode-btn" id="tui-scroll-btn" onclick="enterTuiScrollMode()" title="Scroll agent history">↑ Scroll</button>
             <button class="cancel-tui-btn"  id="tui-cancel-btn" onclick="cancelTuiPoll()" style="display:none" title="Cancel agent poll">⛔ Cancel</button>
           </div>

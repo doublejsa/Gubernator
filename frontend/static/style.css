@@ -351,7 +351,8 @@ html, body {
 .status-dot.error     { background: var(--red); }
 .status-label { font-size: 11px; color: var(--dim); }
 
-.header-stats { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+.header-stats { display: flex; gap: 4px; margin-left: auto; align-items: center; min-width: 0; overflow: hidden; }
+.tui-reset-btn { flex-shrink: 0; }
 
 .stat-badge {
   font-size: 10px; font-family: 'JetBrains Mono', 'Menlo', monospace;

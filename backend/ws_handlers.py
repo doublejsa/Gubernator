@@ -215,11 +215,17 @@ def append_tui_log(user_id: str, cmd: str, output: str):
 
 _AGENT_SPINNER = set("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
-# Words that mean OpenClaw is actively working (this TUI version says "streaming")
-_BUSY_KEYWORDS = (
+# Words that mean the agent is actively working. OpenClaw's TUI has its own
+# idioms ("moseying", "streaming") that DON'T apply to other agents — using them
+# on a Hermes box false-positives and sticks the pill on "thinking". So the set
+# is per-agent; unknown agents get a conservative set (spinner + generic words).
+_BUSY_KEYWORDS_OPENCLAW = (
     'streaming', 'moseying', 'taking longer than expected',
     'processing', 'esc to interrupt', 'thinking',
 )
+_BUSY_KEYWORDS_GENERIC = ('esc to interrupt', 'generating', 'working…', 'streaming…')
+def _busy_keywords(agent: str) -> tuple:
+    return _BUSY_KEYWORDS_OPENCLAW if agent == 'openclaw' else _BUSY_KEYWORDS_GENERIC
 
 # OpenClaw's persistent status bar, e.g.
 #   "⋮ moseying… • 37463m 20s | connected — agent main | session main | tokens 42k/200k (21%)"
@@ -233,16 +239,17 @@ _FOOTER_LINE_RE    = re.compile(
 _FOOTER_ELAPSED_RE = re.compile(r'(\d+)m(?:\s+\d+s)?\s*\|')
 _STALE_BUSY_MINUTES = 30   # no single response runs this long — counter is uptime
 
-def is_agent_busy(screen: str) -> bool:
+def is_agent_busy(screen: str, agent: str = "openclaw") -> bool:
     """True if the agent appears to be actively working."""
+    kws   = _busy_keywords(agent)
     body  = _FOOTER_LINE_RE.sub('', screen)
     lower = body.lower()
-    if any(c in body for c in _AGENT_SPINNER) or any(kw in lower for kw in _BUSY_KEYWORDS):
+    if any(c in body for c in _AGENT_SPINNER) or any(kw in lower for kw in kws):
         return True
     # Busy words on the footer line count only while its counter is plausible.
     for line in screen.splitlines():
         ll = line.lower()
-        if any(kw in ll for kw in _BUSY_KEYWORDS):
+        if any(kw in ll for kw in kws):
             m = _FOOTER_ELAPSED_RE.search(line)
             if m and int(m.group(1)) >= _STALE_BUSY_MINUTES:
                 continue
@@ -265,10 +272,10 @@ def agent_awaits_reply(screen: str) -> bool:
             return True
     return False
 
-def determine_agent_status(screen: str) -> dict:
+def determine_agent_status(screen: str, agent: str = "openclaw") -> dict:
     """Map TUI screen content to a plain-English agent status."""
     lower = screen.lower()
-    busy  = is_agent_busy(screen)
+    busy  = is_agent_busy(screen, agent)
 
     # Needs input — credential prompts (only when NOT actively streaming;
     # avoids false reds when the agent merely mentions 'password' mid-thought)
@@ -594,7 +601,8 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
     if not vps_conn:
         await ws.send_json({"type": "error", "message": "No VPS configured. Add one in Settings."})
     active_vps_id = vps_conn.id if vps_conn else None   # scopes chat/memory/tasks/audit to this bot
-    agent_info = agent_cfg(getattr(vps_conn, "agent_type", None) if vps_conn else None)
+    agent_type_str = (getattr(vps_conn, "agent_type", None) if vps_conn else None) or "openclaw"
+    agent_info = agent_cfg(agent_type_str)
     agent_block = (
         f"## About this bot\n"
         f"The agent on this VPS is **{agent_info['label']}** {agent_info['icon']} — NOT any other framework.\n"
@@ -1011,7 +1019,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         finally:
             status_poll_lock["active"] = False
         # Polling done — signal ready
-        await ws.send_json({"type": "agent_status", **determine_agent_status(screen)})
+        await ws.send_json({"type": "agent_status", **determine_agent_status(screen, agent_type_str)})
         return screen
 
     async def _poll_tui_loop(_SPINNER, _MAX_WAIT, _POLL, _start) -> str:
@@ -1031,11 +1039,11 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 elapsed = int(asyncio.get_event_loop().time() - _start)
                 if elapsed >= _MAX_WAIT: break
                 await ws.send_json({"type": "tui_thinking", "elapsed": elapsed,
-                                    "status": determine_agent_status(screen)})
+                                    "status": determine_agent_status(screen, agent_type_str)})
                 await asyncio.sleep(_POLL)
                 continue
 
-            busy = is_agent_busy(screen)
+            busy = is_agent_busy(screen, agent_type_str)
             idle = ("idle" in lower or "standing by" in lower)
 
             if busy:
@@ -1051,7 +1059,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             elapsed = int(asyncio.get_event_loop().time() - _start)
             if elapsed >= _MAX_WAIT: break
             await ws.send_json({"type": "tui_thinking", "elapsed": elapsed,
-                                "status": determine_agent_status(screen)})
+                                "status": determine_agent_status(screen, agent_type_str)})
             await asyncio.sleep(_POLL)
         return screen
 
@@ -1075,7 +1083,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 if "(VPS shell not connected)" in screen:
                     await asyncio.sleep(5)
                     continue
-                status = determine_agent_status(screen)
+                status = determine_agent_status(screen, agent_type_str)
                 if status["code"] != last_code:
                     last_code = status["code"]
                     await ws.send_json({"type": "agent_status", **status})
@@ -1391,7 +1399,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                     continue
                 first = await run_vps_cmd(
                     f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -120 2>/dev/null")
-                if is_agent_busy(first):
+                if is_agent_busy(first, agent_type_str):
                     # Still working — run the robust poll loop to wait it out
                     status_poll_lock["active"] = True
                     try:
@@ -1399,7 +1407,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                         screen = await _poll_tui_loop(_AGENT_SPINNER, 240, 3, _start)
                     finally:
                         status_poll_lock["active"] = False
-                    await ws.send_json({"type": "agent_status", **determine_agent_status(screen)})
+                    await ws.send_json({"type": "agent_status", **determine_agent_status(screen, agent_type_str)})
                 else:
                     screen = first
                 clean = _INTER_SESSION_RE.sub('', screen).strip()
