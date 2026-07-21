@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from typing import Callable, Awaitable, Optional
 
+import httpx as _httpx
 import anthropic as _anthropic
 try:
     import openai as _openai
@@ -221,6 +222,10 @@ class LLMClient:
             raise LLMTimeout(str(e)) from e
         except _anthropic.AuthenticationError as e:
             raise LLMAuth(str(e)) from e
+        except (_httpx.RemoteProtocolError, _httpx.ReadError, _httpx.ConnectError,
+                _httpx.ReadTimeout, _httpx.RemoteProtocolError) as e:
+            # httpx transport drop mid-stream — often a bad key torn down abruptly.
+            raise LLMTimeout(str(e)) from e
         except _anthropic.APIStatusError as e:
             body = e.body if isinstance(e.body, dict) else {}
             msg  = (body.get("error", {}) or {}).get("message", str(e))
@@ -262,6 +267,9 @@ class LLMClient:
                 raise LLMCredits(str(e)) from e
             raise LLMRateLimit(str(e)) from e
         except (_openai.APITimeoutError, _openai.APIConnectionError) as e:
+            raise LLMTimeout(str(e)) from e
+        except (_httpx.RemoteProtocolError, _httpx.ReadError, _httpx.ConnectError,
+                _httpx.ReadTimeout) as e:
             raise LLMTimeout(str(e)) from e
         except _openai.AuthenticationError as e:
             raise LLMAuth(str(e)) from e
