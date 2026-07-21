@@ -664,6 +664,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
 
     pending_actions: dict[str, dict] = {}
     session_tokens = session_cost = 0.0
+    cost_warned    = set()          # thresholds already announced this session
     user_id_str    = str(user.id)
     # Loop / thrash detection state
     recent_sigs    = deque(maxlen=10)   # normalised signatures of recent actions
@@ -880,7 +881,19 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 }],
                 max_tokens=2048,
             )
-        except Exception:
+        except Exception as e:
+            # NEVER silently give up: if summarising fails the history keeps
+            # growing and every later turn re-sends it — that's how a session
+            # quietly runs up a huge bill. Drop the oldest turns instead.
+            print("[gubernator] compression failed, truncating instead:", repr(e), flush=True)
+            claude_history.clear()
+            claude_history.extend([
+                {"role": "user", "content": "[Earlier conversation dropped to keep this session affordable]"},
+                {"role": "assistant", "content": "Understood — continuing from here."},
+                *recent,
+            ])
+            await ws.send_json({"type": "status",
+                                "message": "⚠ Couldn't summarise history — trimmed it to keep costs down"})
             return
         claude_history.clear()
         claude_history.extend([
@@ -917,6 +930,15 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 "session_tokens": int(session_tokens),
                 "context_pct":    round(inp / llm.context_window * 100, 1),
                 "session_cost":   round(session_cost, 4)})
+            # Tell the user before a session quietly gets expensive
+            for limit in (2, 5, 10, 20):
+                if session_cost >= limit and limit not in cost_warned:
+                    cost_warned.add(limit)
+                    await ws.send_json({"type": "status", "message":
+                        f"💸 This session has cost about ${session_cost:.2f} so far on "
+                        f"{llm.label}. Long chats re-send their whole history every turn — "
+                        f"start a fresh chat, or switch to a cheaper level, to spend less."})
+                    break
         except LLMRateLimit:
             await ws.send_json({"type": "claude_cancel"})
             if claude_history and claude_history[-1]["role"] == "user":
