@@ -181,8 +181,19 @@ function initTerminal(wrapperId, wsPath, col) {
   }
 
   term.onData((data) => {
-    if (handle.ws && handle.ws.readyState === WebSocket.OPEN)
-      handle.ws.send(JSON.stringify({ type: 'input', data }));
+    if (!(handle.ws && handle.ws.readyState === WebSocket.OPEN)) return;
+    // Scroll mode is tmux copy-mode: '/' means SEARCH there, so anything typed
+    // is swallowed by the scrollback search instead of reaching the agent.
+    // If the user starts typing, drop out of it first.
+    if (col === 'tui' && tuiScrollActive && data >= ' ' && data !== 'q') {
+      exitTuiScrollMode();
+      setTimeout(() => {
+        if (handle.ws && handle.ws.readyState === WebSocket.OPEN)
+          handle.ws.send(JSON.stringify({ type: 'input', data }));
+      }, 60);
+      return;
+    }
+    handle.ws.send(JSON.stringify({ type: 'input', data }));
   });
 
   new ResizeObserver(() => {
@@ -705,9 +716,11 @@ function addCheckAgentPrompt() {
   document.getElementById('chat-messages').appendChild(el);
   scrollChat();
 }
+let tuiScrollActive = false;   // true while tmux copy-mode (scrollback) is on
 function enterTuiScrollMode() {
   if (!tuiWs || tuiWs.readyState !== WebSocket.OPEN) return;
   tuiWs.send(JSON.stringify({ type: 'input', data: '\x02[' }));
+  tuiScrollActive = true;
   const btn = document.getElementById('tui-scroll-btn');
   btn.textContent = '✕ Exit scroll (q)'; btn.classList.add('active'); btn.onclick = exitTuiScrollMode;
   tuiTerm.focus();
@@ -715,6 +728,7 @@ function enterTuiScrollMode() {
 function exitTuiScrollMode() {
   if (tuiWs && tuiWs.readyState === WebSocket.OPEN)
     tuiWs.send(JSON.stringify({ type: 'input', data: 'q' }));
+  tuiScrollActive = false;
   const btn = document.getElementById('tui-scroll-btn');
   btn.textContent = '↑ Scroll'; btn.classList.remove('active'); btn.onclick = enterTuiScrollMode;
 }
