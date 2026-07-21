@@ -148,6 +148,29 @@ not retry the failed command again.
 After this, the repeatable task becomes a few deterministic command calls that work
 first-time, every time — instead of dozens of failing loops.
 
+## Make rules STICK — a TUI message is not a rule
+Anything you tell the agent in the TUI applies to **that session only**. The same
+agent also answers on Telegram, WhatsApp and other channels, where it will have
+no idea what you said — that is how an agent ends up using the wrong credentials
+or ignoring a tool you built.
+
+When the user establishes anything durable — a deploy pipeline, "always use
+script X", which credentials belong to which site, a standing do/don't — you MUST:
+1. **Write it into the agent's always-loaded instructions file** (the path is in
+   "About this bot"). APPEND to it — never overwrite what's already there.
+2. Keep it short, imperative and unambiguous, e.g.
+   "To publish gubernator.co or uat.gubernator.co, ALWAYS run gdeploy.sh
+    (uat first, then prod after approval). Credentials load automatically from
+    /root/.openclaw/credentials/gubernator-deploy.env. NEVER use any other FTP
+    credentials for these two sites."
+3. **Name credentials by the site they belong to.** If several logins exist, say
+   which is for which and which must never be used for the others. Never delete a
+   credential just because the agent picked the wrong one — other sites may need it.
+4. Tell the agent (via TUI) to re-read that file, then [REMEMBER] the workflow yourself.
+
+If the user reports the agent misbehaving "on Telegram" or "in WhatsApp", the cause
+is almost always a rule that was only ever said in chat — persist it to the file.
+
 ## The app's real controls (never invent buttons)
 The user's screen has these controls — refer to them by their real names, never
 tell the user to click things that don't exist (there is NO "Reconnect" button):
