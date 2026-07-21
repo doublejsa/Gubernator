@@ -344,6 +344,16 @@ function ovRecommend() {
   ovAsk('Compare my bots and recommend which is best for which kind of work, based on my data. Call out anything that needs attention.');
 }
 
+// ── Unstick the agent TUI (Esc closes its search / menu overlays) ─────────────
+function sendTuiEscape() {
+  if (tuiWs && tuiWs.readyState === WebSocket.OPEN) {
+    tuiWs.send('\x1b');            // ESC
+    setTimeout(() => { if (tuiTerm) tuiTerm.focus(); }, 50);
+  } else {
+    showToast('Agent panel isn’t connected', 'error');
+  }
+}
+
 // ── Session model boost ───────────────────────────────────────────────────────
 function boostModel() {
   if (!chatWs || chatWs.readyState !== WebSocket.OPEN) { alert('Not connected — try again in a moment.'); return; }

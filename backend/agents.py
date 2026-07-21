@@ -22,6 +22,10 @@ AGENTS: dict[str, dict] = {
         "skills_cli":  True,    # ClawHub marketplace via `openclaw skills`
         "install_hint": "npm install -g openclaw@latest, then `openclaw onboard` (check docs.openclaw.ai if that fails)",
         "awareness_path": "/root/.openclaw/workspace/GUBERNATOR.md",
+        "model_hint": "use the built-in CLI: `openclaw models status --plain` to see the current "
+                      "model, and `openclaw models --help` for the set/switch subcommand. Then "
+                      "restart the gateway. NEVER hand-edit session JSON — a half-applied switch "
+                      "leaves liveModelSwitchPending=true and breaks the agent.",
     },
     "hermes": {
         "label":       "Hermes",
@@ -36,6 +40,8 @@ AGENTS: dict[str, dict] = {
                         "then `hermes setup` (interactive — user runs it in the Console), "
                         "then `hermes gateway install` to run it as a service",
         "awareness_path": "/root/.hermes/GUBERNATOR.md",
+        "model_hint": "use `hermes model` (interactive picker) or `hermes config set` — check "
+                      "`hermes model --help` first. Never hand-edit session files.",
     },
 }
 DEFAULT_AGENT = "openclaw"
