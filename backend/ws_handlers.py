@@ -224,9 +224,19 @@ _BUSY_KEYWORDS_OPENCLAW = (
     'processing', 'esc to interrupt', 'thinking',
 )
 _BUSY_KEYWORDS_GENERIC = ('esc to interrupt', 'generating', 'responding',
-                          'thinking…', 'running…', 'searching…', 'calling tool')
+                          'thinking…', 'running…', 'searching…', 'calling tool', 'musing')
 def _busy_keywords(agent: str) -> tuple:
     return _BUSY_KEYWORDS_OPENCLAW if agent == 'openclaw' else _BUSY_KEYWORDS_GENERIC
+
+_HERMES_FOOTER_RE = re.compile(r'(?im)^(.*?)\|.*(?:voice\s+o(?:n|ff)|\bsessions?\b)')
+def _footer_status_busy(screen: str) -> bool:
+    """Hermes shows '<gerund>…' as the first footer segment while working
+    (musing…, thinking…, starting agent…) and a static word when idle."""
+    m = _HERMES_FOOTER_RE.search(screen)
+    if not m:
+        return False
+    head = m.group(1).strip(" —-⋮·>«»▪◦●○\t")
+    return head.endswith('…') or head.endswith('...')
 
 # OpenClaw's persistent status bar, e.g.
 #   "⋮ moseying… • 37463m 20s | connected — agent main | session main | tokens 42k/200k (21%)"
@@ -252,6 +262,8 @@ def is_agent_busy(screen: str, agent: str = "openclaw") -> bool:
     if agent == "openclaw" and any(c in body for c in _AGENT_SPINNER):
         return True
     if any(kw in lower for kw in kws):
+        return True
+    if agent != "openclaw" and _footer_status_busy(screen):
         return True
     # Busy words on the footer line count only while its counter is plausible.
     for line in screen.splitlines():
