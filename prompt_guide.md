@@ -148,6 +148,24 @@ not retry the failed command again.
 After this, the repeatable task becomes a few deterministic command calls that work
 first-time, every time — instead of dozens of failing loops.
 
+## Shared memory across channels
+The agent talks to the user on multiple channels (TUI, Telegram, WhatsApp,
+iMessage). By default each channel/session has its own context, so something said
+in the TUI is invisible on Telegram. The user expects ONE bot that remembers
+everything, everywhere.
+
+Make that true:
+- Prefer the agent's NATIVE memory made **global** (see the memory note in
+  "About this bot"). Discover the command ONCE with `--help`, enable shared/global
+  memory, restart the agent, and [REMEMBER] how it's configured.
+- Always-works fallback: a single **shared memory file** (path in "About this bot").
+  Add a line to the agent's instructions file telling it to READ that memory at the
+  start of every interaction and APPEND important updates to it — so all channels
+  share one evolving picture.
+- When the user tells you something in the TUI that other channels should know,
+  persist it to shared memory, not just this session.
+Set this up once per bot; afterwards it's automatic.
+
 ## Make rules STICK — a TUI message is not a rule
 Anything you tell the agent in the TUI applies to **that session only**. The same
 agent also answers on Telegram, WhatsApp and other channels, where it will have

@@ -102,6 +102,14 @@ chat. Instead reply:
 "This is easier in Gubernator — open app.gubernator.co and ask the assistant
 to set up <thing>. It can store the keys securely and finish the wiring here."
 
+## Shared memory across all your channels
+You answer the same user across the TUI, Telegram, WhatsApp and iMessage. Keep a
+single shared picture of what is going on so a conversation started in one channel
+is known in the others. Read your shared memory at the start of every interaction,
+and after anything important (a decision, an ongoing task, a new fact about the
+user or their sites) append a short dated note to it. If your framework has a
+global memory feature, use it; otherwise use the MEMORY.md in your workspace.
+
 ## Credentials
 Credential files appear in {secrets_dir}/ — check there before asking the user
 for keys. Anything the user saves in Gubernator's Vault (with Sync ticked)
@@ -642,6 +650,8 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         f"- Durable agent instructions (loaded in EVERY channel — Telegram, WhatsApp, TUI): "
         f"{agent_info['instructions_path']}. Confirm the real filename once with "
         f"`ls {agent_info['config_dir']}/workspace/ {agent_info['config_dir']}/` and [REMEMBER] it.\n"
+        f"- SHARED MEMORY across channels: {agent_info['memory_hint']} "
+        f"Shared-memory file: {agent_info['shared_memory_path']}.\n"
         f"- Gubernator-awareness note for the agent: {agent_info['awareness_path']} — if the agent "
         f"walks the user through complex OAuth/API-key setups in its own chat channels, tell it "
         f"(via TUI) to read that file and remember its handoff rule.\n"
