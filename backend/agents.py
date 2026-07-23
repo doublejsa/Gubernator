@@ -23,6 +23,11 @@ AGENTS: dict[str, dict] = {
         "install_hint": "npm install -g openclaw@latest, then `openclaw onboard` (check docs.openclaw.ai if that fails)",
         "awareness_path": "/root/.openclaw/workspace/GUBERNATOR.md",
         "instructions_path": "/root/.openclaw/workspace/AGENTS.md",
+        "shared_memory_path": "/root/.openclaw/workspace/MEMORY.md",
+        "memory_hint": "OpenClaw has a memory system — check `openclaw memory --help`. Configure "
+                       "memory to be GLOBAL/shared across all sessions and channels (not per-session). "
+                       "If it can't be made global, keep a workspace/MEMORY.md that the persona reads "
+                       "and appends to every turn — that file is shared by all channels.",
         "model_hint": "use the built-in CLI: `openclaw models status --plain` to see the current "
                       "model, and `openclaw models --help` for the set/switch subcommand. Then "
                       "restart the gateway. NEVER hand-edit session JSON — a half-applied switch "
@@ -42,6 +47,11 @@ AGENTS: dict[str, dict] = {
                         "then `hermes gateway install` to run it as a service",
         "awareness_path": "/root/.hermes/GUBERNATOR.md",
         "instructions_path": "/root/.hermes/AGENTS.md",
+        "shared_memory_path": "/root/.hermes/MEMORY.md",
+        "memory_hint": "Hermes has built-in persistent cross-session memory (it searches its own past "
+                       "conversations). Ensure that memory is enabled and shared across channels — "
+                       "check `hermes memory --help` / `hermes --help`. As a fallback keep a shared "
+                       "MEMORY.md the persona reads and updates.",
         "model_hint": "use `hermes model` (interactive picker) or `hermes config set` — check "
                       "`hermes model --help` first. Never hand-edit session files.",
     },
