@@ -24,10 +24,12 @@ AGENTS: dict[str, dict] = {
         "awareness_path": "/root/.openclaw/workspace/GUBERNATOR.md",
         "instructions_path": "/root/.openclaw/workspace/AGENTS.md",
         "shared_memory_path": "/root/.openclaw/workspace/MEMORY.md",
-        "memory_hint": "OpenClaw has a memory system — check `openclaw memory --help`. Configure "
-                       "memory to be GLOBAL/shared across all sessions and channels (not per-session). "
-                       "If it can't be made global, keep a workspace/MEMORY.md that the persona reads "
-                       "and appends to every turn — that file is shared by all channels.",
+        "memory_hint": "VERIFIED: OpenClaw's long-term memory is workspace/MEMORY.md, already active "
+                       "and shared across ALL channels (TUI/Telegram/WhatsApp). No per-channel setup "
+                       "needed. `openclaw memory status` shows the index; `openclaw memory promote` "
+                       "ranks recent recalls and appends the best to MEMORY.md. To make sure something "
+                       "is remembered everywhere, ensure it lands in MEMORY.md (durable facts) or "
+                       "AGENTS.md (standing rules) — both are loaded in every channel.",
         "model_hint": "use the built-in CLI: `openclaw models status --plain` to see the current "
                       "model, and `openclaw models --help` for the set/switch subcommand. Then "
                       "restart the gateway. NEVER hand-edit session JSON — a half-applied switch "
@@ -48,10 +50,12 @@ AGENTS: dict[str, dict] = {
         "awareness_path": "/root/.hermes/GUBERNATOR.md",
         "instructions_path": "/root/.hermes/AGENTS.md",
         "shared_memory_path": "/root/.hermes/MEMORY.md",
-        "memory_hint": "Hermes has built-in persistent cross-session memory (it searches its own past "
-                       "conversations). Ensure that memory is enabled and shared across channels — "
-                       "check `hermes memory --help` / `hermes --help`. As a fallback keep a shared "
-                       "MEMORY.md the persona reads and updates.",
+        "memory_hint": "VERIFIED: Hermes built-in memory (MEMORY.md/USER.md) is ALWAYS active and "
+                       "shared across channels — no setup needed for basic cross-channel memory. "
+                       "Run `hermes memory status` to see the config and the exact MEMORY.md path "
+                       "([REMEMBER] it). Durable facts belong in MEMORY.md, standing rules in AGENTS.md. "
+                       "Optional stronger recall via external providers: `hermes memory setup` "
+                       "(mem0/honcho/…), but don't bother unless the user asks.",
         "model_hint": "use `hermes model` (interactive picker) or `hermes config set` — check "
                       "`hermes model --help` first. Never hand-edit session files.",
     },
