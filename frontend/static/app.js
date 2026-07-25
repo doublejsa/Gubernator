@@ -1768,7 +1768,37 @@ async function installSkill(slug, btn) {
 // ── Memory modal ──────────────────────────────────────────────────────────────
 async function openMemoryModal() {
   openModal('memory-modal');
+  switchMemTab('gub');
   loadMemory();
+}
+
+function switchMemTab(which) {
+  const gub = which === 'gub';
+  document.getElementById('mem-gub-pane').style.display   = gub ? '' : 'none';
+  document.getElementById('mem-agent-pane').style.display = gub ? 'none' : '';
+  document.getElementById('memtab-gub').classList.toggle('active', gub);
+  document.getElementById('memtab-agent').classList.toggle('active', !gub);
+  if (!gub) loadAgentMemory();
+}
+
+async function loadAgentMemory() {
+  const box = document.getElementById('agent-memory-body');
+  box.innerHTML = '<div class="empty-state">Reading your bot’s memory…</div>';
+  let d;
+  try { d = await (await fetch(`/api/agent-memory?${vpsParam('')}`)).json(); }
+  catch (e) { box.innerHTML = '<div class="empty-state">Couldn’t read it — is the bot connected?</div>'; return; }
+  if (!d.files || !d.files.length) {
+    box.innerHTML = `<div class="empty-state">${esc(d.error || 'Nothing to show yet.')}</div>`;
+    return;
+  }
+  box.innerHTML = d.files.map(f => {
+    const body = f.content || '(empty — the agent hasn’t written anything here yet)';
+    return `<div style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">${esc(f.label)}</div>
+      <div style="font-size:11px;color:var(--dim);margin-bottom:6px;font-family:'JetBrains Mono',monospace">${esc(f.path)}</div>
+      <pre class="action-raw-pre" style="max-height:300px">${esc(body)}</pre>
+    </div>`;
+  }).join('');
 }
 
 async function loadMemory() {

@@ -797,6 +797,26 @@ async def list_memory(vps_id: str = "", user: User = Depends(get_current_user), 
     return [{"id": str(m.id), "key": m.key, "value": m.value, "category": m.category,
              "updated_at": m.updated_at.isoformat()} for m in rows]
 
+@app.get("/api/agent-memory")
+async def agent_memory(vps_id: str = "", user: User = Depends(get_current_user),
+                       db: AsyncSession = Depends(get_db)):
+    """Read the agent's OWN shared memory files (MEMORY.md / AGENTS.md) off the
+    VPS — the brain shared across all its channels. Read-only, last 20 KB each."""
+    vps = await _resolve_vps(user, db, vps_id or None)
+    if not vps:
+        return {"files": [], "error": "No bot connected"}
+    cfg = agent_cfg(getattr(vps, "agent_type", None))
+    out = []
+    for label, path in (("MEMORY.md (what your bot remembers)", cfg["shared_memory_path"]),
+                        ("AGENTS.md (its standing rules)",      cfg["instructions_path"])):
+        try:
+            body = await _vps_exec(user, db, f"tail -c 20000 {shlex.quote(path)} 2>/dev/null",
+                                   timeout=15, vps_id=vps_id or None)
+        except Exception as e:
+            body = f"(couldn't read: {e})"
+        out.append({"label": label, "path": path, "content": (body or "").strip()})
+    return {"files": out, "agent": cfg["label"]}
+
 @app.post("/api/memory")
 async def save_memory(body: MemoryIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     vec = await embed(f"{body.key}: {body.value}")

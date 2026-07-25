@@ -365,6 +365,19 @@
         <button class="modal-close" onclick="closeModal('memory-modal')">×</button>
       </div>
       <div class="modal-body">
+        <div class="skills-tabs">
+          <button class="skills-tab active" id="memtab-gub" onclick="switchMemTab('gub')">Gubernator remembers</button>
+          <button class="skills-tab" id="memtab-agent" onclick="switchMemTab('agent')">🧠 Agent's own memory</button>
+        </div>
+
+        <div id="mem-agent-pane" style="display:none">
+          <p style="font-size:12px;color:var(--dim);margin-bottom:14px">
+            Your bot's own shared memory — the same brain it uses across the TUI, Telegram, WhatsApp and iMessage. Read-only; the agent maintains this itself.
+          </p>
+          <div id="agent-memory-body"></div>
+        </div>
+
+        <div id="mem-gub-pane">
         <p style="font-size:12px;color:var(--dim);margin-bottom:14px">
           Facts Gubernator remembers across sessions. Claude adds these automatically as it learns about your setup — you can also add or remove them here.
         </p>
@@ -383,6 +396,7 @@
           </div>
         </div>
         <div id="memory-list"></div>
+        </div><!-- /mem-gub-pane -->
       </div>
     </div>
   </div>
