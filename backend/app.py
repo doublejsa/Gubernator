@@ -805,16 +805,32 @@ async def agent_memory(vps_id: str = "", user: User = Depends(get_current_user),
     vps = await _resolve_vps(user, db, vps_id or None)
     if not vps:
         return {"files": [], "error": "No bot connected"}
-    cfg = agent_cfg(getattr(vps, "agent_type", None))
+    cfg   = agent_cfg(getattr(vps, "agent_type", None))
+    cdir  = shlex.quote(cfg["config_dir"])
+    # Different agents keep these files in different places (OpenClaw:
+    # workspace/, Hermes: elsewhere) — locate each by name under the agent's
+    # config dir and /root, preferring a non-empty match, then show it.
+    labels = {"MEMORY.md": "MEMORY.md — what your bot remembers",
+              "USER.md":   "USER.md — what it knows about you",
+              "AGENTS.md": "AGENTS.md — its standing rules"}
+    script = (
+        'for f in MEMORY.md USER.md AGENTS.md; do '
+        f'  p=$(find {cdir} /root -maxdepth 4 -type f -name "$f" -size +0c 2>/dev/null | head -1); '
+        f'  [ -z "$p" ] && p=$(find {cdir} /root -maxdepth 4 -type f -name "$f" 2>/dev/null | head -1); '
+        '  if [ -n "$p" ]; then printf "@@GUB@@%s@@%s@@\\n" "$f" "$p"; tail -c 20000 "$p"; printf "\\n"; fi; '
+        'done')
+    try:
+        raw = await _vps_exec(user, db, script, timeout=20, vps_id=vps_id or None)
+    except Exception as e:
+        return {"files": [], "error": f"Couldn't read memory: {e}"}
     out = []
-    for label, path in (("MEMORY.md (what your bot remembers)", cfg["shared_memory_path"]),
-                        ("AGENTS.md (its standing rules)",      cfg["instructions_path"])):
-        try:
-            body = await _vps_exec(user, db, f"tail -c 20000 {shlex.quote(path)} 2>/dev/null",
-                                   timeout=15, vps_id=vps_id or None)
-        except Exception as e:
-            body = f"(couldn't read: {e})"
-        out.append({"label": label, "path": path, "content": (body or "").strip()})
+    for chunk in raw.split("@@GUB@@")[1:]:
+        head, _, body = chunk.partition("\n")
+        name, _, path = head.partition("@@")
+        path = path.strip("@").strip()
+        out.append({"label": labels.get(name, name), "path": path, "content": body.strip()})
+    if not out:   # nothing found anywhere
+        out = [{"label": labels["MEMORY.md"], "path": cfg["shared_memory_path"], "content": ""}]
     return {"files": out, "agent": cfg["label"]}
 
 @app.post("/api/memory")
