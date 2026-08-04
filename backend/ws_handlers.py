@@ -860,6 +860,15 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
             return "(VPS shell not connected)"
         return await asyncio.get_event_loop().run_in_executor(None, lambda: shell.exec(cmd))
 
+    async def capture_tui(lines: int = 120) -> str:
+        # ALWAYS cancel tmux copy-mode before capturing. If the pane is in
+        # copy-mode (a stray mouse-scroll silently enters it), capture-pane
+        # returns the FROZEN scrollback frame — so Claude reads the same stale
+        # screen forever and "Check agent" never sees the live output.
+        return await run_vps_cmd(
+            f"tmux send-keys -t {TMUX_SESSION} -X cancel 2>/dev/null; "
+            f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -{lines} 2>/dev/null")
+
     async def _sftp_put(content: str, path: str) -> Optional[str]:
         """Write `content` to `path` on the VPS via SFTP. Returns an error string or None."""
         _, shell = get_sessions()
@@ -1047,7 +1056,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         async def _tui_monitor():
             while True:
                 await asyncio.sleep(5)
-                screen = await run_vps_cmd(f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -10 2>/dev/null")
+                screen = await capture_tui(10)
                 if "send another message to continue" in screen.lower():
                     tui, _ = get_sessions()
                     if tui and tui.connected:
@@ -1106,7 +1115,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
         screen        = ""
         settled_count = 0   # consecutive quiet reads before we declare 'done'
         while True:
-            screen = await run_vps_cmd(f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -120 2>/dev/null")
+            screen = await capture_tui(120)
             lower  = screen.lower()
 
             # Pagination — advance and keep polling
@@ -1158,8 +1167,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 if not (tui and tui.connected and shell and shell.connected):
                     await asyncio.sleep(5)
                     continue
-                screen = await run_vps_cmd(
-                    f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -30 2>/dev/null")
+                screen = await capture_tui(30)
                 if "(VPS shell not connected)" in screen:
                     await asyncio.sleep(5)
                     continue
@@ -1194,7 +1202,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 await ws.send_json({"type": "status", "message": "✅ VPS connected — first time here, let me get to know it"})
                 await profile_vps()
                 return
-            tui_screen = await run_vps_cmd(f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -120 2>/dev/null")
+            tui_screen = await capture_tui(120)
             tui_ctx    = f"\nCurrent TUI screen:\n{tui_screen}\n" if tui_screen.strip() else ""
             if saved_at:
                 await ws.send_json({"type": "status", "message": "✅ VPS connected"})
@@ -1477,8 +1485,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                     await ws.send_json({"type": "error", "message": "VPS not connected — can't check the agent."})
                     await ws.send_json({"type": "done"})
                     continue
-                first = await run_vps_cmd(
-                    f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -120 2>/dev/null")
+                first = await capture_tui(120)
                 if is_agent_busy(first, agent_type_str):
                     # Still working — run the robust poll loop to wait it out
                     status_poll_lock["active"] = True
@@ -1503,16 +1510,14 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 if not content:
                     continue
                 # Inject current TUI screen
-                tui_screen = await run_vps_cmd(
-                    f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -40 2>/dev/null")
+                tui_screen = await capture_tui(40)
                 if tui_screen.strip() and "(VPS shell not connected)" not in tui_screen:
                     if "send another message to continue" in tui_screen.lower():
                         tui, _ = get_sessions()
                         if tui and tui.connected:
                             tui.write(b'\r')
                         await asyncio.sleep(2)
-                        tui_screen = await run_vps_cmd(
-                            f"tmux capture-pane -t {TMUX_SESSION} -p -J -S -40 2>/dev/null")
+                        tui_screen = await capture_tui(40)
                     tui_screen = _INTER_SESSION_RE.sub('', tui_screen).strip()
                     ts = datetime.now().strftime("%H:%M:%S")
                     content = (f"[Current TUI screen at {ts}]:\n{tui_screen}\n\nUser: {content}")
