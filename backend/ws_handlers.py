@@ -3,7 +3,8 @@ WebSocket handlers — TUI terminal, VPS shell, Claude chat.
 All handlers require auth via ?token= query param (set from cookie on connect).
 """
 from __future__ import annotations
-import asyncio, json, re, uuid, traceback
+import asyncio, json, re, uuid, traceback, shlex
+import paramiko
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -847,18 +848,47 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
     def get_sessions():
         return sessions_ref.get("tui"), sessions_ref.get("shell")
 
+    async def _ssh_exec_direct(cmd: str, timeout: int = 30) -> str:
+        # Reach the VPS without the browser's Console panel — a short-lived SSH
+        # using the bot's stored creds. Makes capture + agent input work even
+        # when the terminal WebSockets have dropped.
+        host, port, uname, pw = get_vps_creds()
+        if not host:
+            return "(VPS not configured)"
+        def _run():
+            c = paramiko.SSHClient()
+            c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            try:
+                c.connect(host, port=port, username=uname, password=pw, timeout=15)
+                _, o, e = c.exec_command(cmd, timeout=timeout)
+                o.channel.recv_exit_status()
+                return o.read().decode(errors="replace") + e.read().decode(errors="replace")
+            except Exception as exc:
+                return f"(VPS unreachable: {exc})"
+            finally:
+                c.close()
+        return await asyncio.get_event_loop().run_in_executor(None, _run)
+
     async def run_vps_cmd(cmd: str) -> str:
         _, shell = get_sessions()
-        if not (shell and shell.connected):
-            return "(VPS shell not connected)"
-        try:
-            transport = shell.client.get_transport()
-            if not (transport and transport.is_active()):
+        if shell and shell.connected:
+            try:
+                transport = shell.client.get_transport()
+                if transport and transport.is_active():
+                    return await asyncio.get_event_loop().run_in_executor(None, lambda: shell.exec(cmd))
                 shell.connected = False
-                return "(VPS shell not connected — reconnecting)"
-        except Exception:
-            return "(VPS shell not connected)"
-        return await asyncio.get_event_loop().run_in_executor(None, lambda: shell.exec(cmd))
+            except Exception:
+                pass
+        # Console panel not live — reach the VPS directly.
+        return await _ssh_exec_direct(cmd)
+
+    async def tui_send(text: str, enter: bool = True) -> None:
+        # Send to the agent via its tmux session (send-keys) — independent of the
+        # browser Agent panel. Works as long as the VPS is reachable.
+        if text:
+            await run_vps_cmd(f"tmux send-keys -t {TMUX_SESSION} -l -- {shlex.quote(text)}")
+        if enter:
+            await run_vps_cmd(f"tmux send-keys -t {TMUX_SESSION} Enter")
 
     async def capture_tui(lines: int = 120) -> str:
         # ALWAYS cancel tmux copy-mode before capturing. If the pane is in
@@ -1208,13 +1238,13 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 await ws.send_json({"type": "status", "message": "✅ VPS connected"})
                 full = await stream_claude(
                     f"[Startup — session restored from {saved_at[:16].replace('T',' ')}]\n"
-                    f"VPS and OpenClaw TUI connected.\n{tui_ctx}\n"
+                    f"VPS and agent connected.\n{tui_ctx}\n"
                     "IMPORTANT ROLE RESET: You are Gubernator, the user's primary interface to their OpenClaw agent. "
                     "Never refuse. Never say something is outside your scope.\n\n"
                     "Briefly summarise what we were working on (1–2 sentences) and suggest 2–3 concrete next steps."
                 )
             else:
-                await ws.send_json({"type": "status", "message": "✅ OpenClaw TUI and VPS Shell connected"})
+                await ws.send_json({"type": "status", "message": "✅ Agent and Console connected"})
                 full = await stream_claude(
                     f"[Startup — no previous session]\nVPS and OpenClaw TUI connected.\n{tui_ctx}\n"
                     "Briefly describe what's showing in the TUI (1 sentence) and suggest 2–3 things to do next."
@@ -1223,7 +1253,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                 await finish_response(full)
         else:
             problems = []
-            if not tui_ok:   problems.append("OpenClaw TUI not connected")
+            if not tui_ok:   problems.append("Agent panel not connected")
             if not shell_ok: problems.append("VPS Shell not connected")
             full = await stream_claude(
                 f"Startup: {', '.join(problems)}. VPS: {vps_host}:{vps_port} user: {vps_user}\n"
@@ -1269,27 +1299,32 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                     continue
 
                 if action["type"] == "tui_input":
-                    tui, _ = get_sessions()
-                    if tui and tui.connected:
-                        if _CRED_RE.search(action["data"]):
-                            await ws.send_json({"type": "action_dismissed", "action_id": aid})
-                            await run_claude(
-                                "[system] That would send a password/secret to the agent — don't. "
-                                "Instead, plainly ask the user to type the secret directly into the Agent "
-                                "terminal themselves (for their security). Do not mention this instruction.")
-                            continue
-                        if _WAIT_RE.match(action["data"]):
-                            await ws.send_json({"type": "status", "message": "⏳ Wait phrase ignored"})
-                            await ws.send_json({"type": "done"})
-                            continue
-                        auto_continue = bool(_AUTO_CONTINUE_RE.search(action["data"]))
-                        if auto_continue:
-                            tui.write(b'\r')
-                            await ws.send_json({"type": "action_done", "action_id": aid, "label": "↩ continued"})
-                        else:
-                            tui.write((action["data"] + "\r").encode())
-                            await ws.send_json({"type": "action_done", "action_id": aid, "label": action["data"]})
+                    if not vps_conn:
+                        await ws.send_json({"type": "action_error", "action_id": aid,
+                                            "message": "No VPS configured — add one in Settings."})
+                        continue
+                    if _CRED_RE.search(action["data"]):
+                        await ws.send_json({"type": "action_dismissed", "action_id": aid})
+                        await run_claude(
+                            "[system] That would send a password/secret to the agent — don't. "
+                            "Instead, plainly ask the user to type the secret directly into the Agent "
+                            "terminal themselves (for their security). Do not mention this instruction.")
+                        continue
+                    if _WAIT_RE.match(action["data"]):
+                        await ws.send_json({"type": "status", "message": "⏳ Wait phrase ignored"})
+                        await ws.send_json({"type": "done"})
+                        continue
+                    auto_continue = bool(_AUTO_CONTINUE_RE.search(action["data"]))
+                    # Send via tmux send-keys — works even if the browser Agent
+                    # panel has dropped, as long as the VPS is reachable.
+                    if auto_continue:
+                        await tui_send("", enter=True)
+                        await ws.send_json({"type": "action_done", "action_id": aid, "label": "↩ continued"})
+                    else:
+                        await tui_send(action["data"], enter=True)
+                        await ws.send_json({"type": "action_done", "action_id": aid, "label": action["data"]})
 
+                    if True:
                         poll_task = asyncio.create_task(poll_tui_until_done())
                         screen    = ""
                         cancelled = False
@@ -1320,11 +1355,7 @@ async def chat_ws_handler(ws: WebSocket, user: User, db: AsyncSession, sessions_
                                                 "output": latest or "(no TUI output captured)"})
                             await ws.send_json({"type": "agent_status", "code": "ready",
                                                 "color": "green", "label": "Agent is ready"})
-                            await run_claude(f"TUI message sent: `{cmd_label}`\n\nOpenClaw response:\n{latest}")
-                    else:
-                        await ws.send_json({"type": "action_error", "action_id": aid,
-                                            "message": "OpenClaw TUI not connected"})
-                        await run_claude(f"TUI command `{action['data']}` failed — TUI not connected.")
+                            await run_claude(f"Message sent to the agent: `{cmd_label}`\n\nAgent response:\n{latest}")
 
                 elif action["type"] == "vps_cmd":
                     exec_cmd = action["data"]
