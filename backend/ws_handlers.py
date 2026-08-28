@@ -260,9 +260,18 @@ _FOOTER_LINE_RE    = re.compile(
     r'|•\s*\d+m(?:\s+\d+s)?\s*\|\s*connected).*$')
 _FOOTER_ELAPSED_RE = re.compile(r'(\d+)m(?:\s+\d+s)?\s*\|')
 _STALE_BUSY_MINUTES = 30   # no single response runs this long — counter is uptime
+# Explicit "not working" markers in the agent's status line — these WIN over any
+# busy keyword that merely appears in the conversation text on screen (e.g. the
+# agent's own message saying "checking…" / "processing…" / "thinking through…").
+_IDLE_RE = re.compile(r'(?:connected|ready|standing by|awaiting)\s*[|•·]?\s*idle'
+                      r'|[|•·]\s*idle\b|\bidle\b\s*[|•·]|\bready\b\s*[|•·]', re.IGNORECASE)
 
 def is_agent_busy(screen: str, agent: str = "openclaw") -> bool:
     """True if the agent appears to be actively working."""
+    # A clear idle/ready status line means NOT busy, whatever words the visible
+    # conversation contains. (OpenClaw shows "connected | idle".)
+    if _IDLE_RE.search(screen):
+        return False
     kws   = _busy_keywords(agent)
     body  = _FOOTER_LINE_RE.sub('', screen)
     lower = body.lower()
